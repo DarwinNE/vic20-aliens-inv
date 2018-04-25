@@ -1,6 +1,6 @@
-;         V I C   A L I E N S - I N V A D E R S
+;         V I C   A L I E N - I N V A D E R S
 ;
-;       by Davide Bucci, April 2018
+;             by Davide Bucci, April 2018
 ;
 ; This program is a Space-Invaders clone that runs on an unexpanded VIC-20
 ; A certain amount of work has been done to ensure that the graphics is smooth
@@ -96,7 +96,8 @@ MovCh:
 ; 2 - Calculate positions of the falling bombs and fire shoots and draw them
 ; 3 - Update the position of the cannon and draw it
 ; 5 - Check for collisions and handle explosions
-; 6 - Jump to the original IRQ handler (for scanning the keyboard, etc).
+; 6 - Call the sound driver
+; 7 - Jump to the original IRQ handler (for scanning the keyboard, etc).
 ;
 ; The user interface is handled outside of the interrupt, in the main program
 ; loop and the communication with the IRQ handler is made by a set of
@@ -136,7 +137,7 @@ IrqHandler:
             jsr DrawAliens
 @cont:
             inc IrqCn
-            pla             ; Retrive registers
+            pla             ; Retreive registers
             tay
             pla
             tax
