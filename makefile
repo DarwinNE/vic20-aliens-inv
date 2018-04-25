@@ -1,4 +1,4 @@
 all:
-	cl65 aliens-inv.s -t vic20 -C vic20spinv.cfg -o aliens-inv
+	cl65 alien-inv.s -t vic20 -C vic20alinv.cfg -o alien-inv
 
 
