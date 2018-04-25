@@ -15,6 +15,8 @@
 
         GRCHARS1 = $1C00     ; Address of user-defined characters
 
+; KERNAL routines used
+        GETIN = $FFE4
 
 ; VIC-chip addresses
 
@@ -27,6 +29,8 @@
 
         MEMSCR   = $1E00    ; Start address of the screen memory (unexp. VIC)
         MEMCLR   = $9600    ; Start address of the colour memory (unexp. VIC)
+
+        REPEATKE = $028A    ; Repeat all keys
 
 .export main
 .segment "STARTUP"
@@ -42,7 +46,16 @@ main:
             lda #34
             sta AlienPosY   ; Initial position of aliens
             jsr DrawAliens
-            rts
+
+@mainloop:  jsr GETIN
+            beq @mainloop
+            cmp #$57        ; W decrease position of the cannon
+            bne @continue1
+            inc CannonPos
+@continue1: cmp #$58        ; X increase position of the cannon
+            bne @continue2
+            dec CannonPos
+@continue2: jmp @mainloop
 
 ; INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT
 ;
@@ -52,6 +65,8 @@ main:
 ; INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT
 
 Init:
+            lda #$70        ; Autorepeat on on the keyboard
+            sta REPEATKE
             lda #$09        ; Define screen colour and background
             sta VICCOLOR
             lda #$90        ; Set a 16 column-wide screen
@@ -133,9 +148,19 @@ IrqHandler:
             bne @draw
             lda #0
             sta AlienPosY
-@draw:      jsr CLS
+@draw:      jsr CLS         ; If the screen has changed, make sure that the
+            lda #$FF        ; position of the cannon is updated afterwards
+            sta OldCannonP
             jsr DrawAliens
 @cont:
+            lda CannonPos   ; Check if the cannon position has changed
+            cmp OldCannonP
+            beq @nochange
+            jsr ClearCannon
+            lda CannonPos   ; Update the OldCannonP value to the current pos.
+            sta OldCannonP
+            jsr DrawCannon
+@nochange:
             inc IrqCn
             pla             ; Retreive registers
             tay
@@ -144,6 +169,37 @@ IrqHandler:
             pla
 
             jmp $EABF       ; Jump to the standard IRQ handling routine
+
+; Draw the cannon on the screen, at the current position, contained in
+; CannonPos (in pixels).
+
+DrawCannon:
+            lda CannonPos
+            lsr                 ; The position is in pixel, divide by 8
+            lsr                 ; to obtain position in characters
+            lsr
+            tax
+            ldy #30             ; Vertical position of the cannon
+            lda #$1             ; Cannon in white
+            sta Colour
+            lda #$4             ; Cannon char
+            jsr DrawChar
+            rts
+
+; Clear the cannon on the screen, at the current position, contained in
+; OldCannonP (in pixels).
+
+ClearCannon:
+            lda OldCannonP
+            lsr                 ; The position is in pixel, divide by 8
+            lsr                 ; to obtain position in characters
+            lsr
+            tax
+            ldy #30             ; Vertical position of the cannon
+            lda #$1             ; Cannon in white
+            sta Colour
+            lda #$5             ; Space
+            jsr DrawChar
 
 ; Draw the aliens on the screen. They are several lines with at most 8 aliens
 ; each. The presence of an alien in the first row is given by bits in the
@@ -154,7 +210,7 @@ IrqHandler:
 DrawAliens:
             ldx #$10
             lda AlienPosY      ; The position is in pixel, divide by 8
-            lsr                ; to obtain position in character
+            lsr                ; to obtain position in characters
             lsr
             lsr
             sta AlienCurrY
@@ -251,6 +307,7 @@ AlienPosX:  .byte $00           ; Horisontal position of aliens (in pixels)
 AlienPosY:  .byte $00           ; Vertical position of aliens (in pixels)
 AlienCurrY: .byte $00           ; Vertical position of alien being drawn
 CannonPos:  .byte $64           ; Horisontal position of the cannon (in pixels)
+OldCannonP: .byte $00           ; Old position of the cannon
 
 DefChars:
             .byte %00111100     ; Alien #1, associated to ch. 0 (normally @)
