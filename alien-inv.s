@@ -140,7 +140,7 @@ MovCh:
             lda DefChars,x
             sta GRCHARS1,x
             inx
-            cpx #5*8
+            cpx #6*8
             bne @loop
             rts
 
