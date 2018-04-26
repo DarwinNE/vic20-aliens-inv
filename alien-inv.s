@@ -49,12 +49,25 @@ main:
 
 @mainloop:  jsr GETIN
             beq @mainloop
-            cmp #$57        ; W decrease position of the cannon
+            cmp #$58        ; X: increase position of the cannon
             bne @continue1
-            inc CannonPos
-@continue1: cmp #$58        ; X increase position of the cannon
+            ;inc CannonPos
+            lda #$08
+            clc
+            adc CannonPos
+            sta CannonPos
+            cmp #$7F
+            bcc @continue1
+            lda #$7F
+            sta CannonPos
+@continue1: cmp #$5A        ; Z: decrease position of the cannon
             bne @continue2
-            dec CannonPos
+            ;dec CannonPos
+            sec
+            lda CannonPos
+            sbc #$08
+            bcc @continue2
+            sta CannonPos
 @continue2: jmp @mainloop
 
 ; INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT
@@ -65,9 +78,9 @@ main:
 ; INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT
 
 Init:
-            lda #$70        ; Autorepeat on on the keyboard
+            lda #$80        ; Autorepeat on on the keyboard
             sta REPEATKE
-            lda #$09        ; Define screen colour and background
+            lda #$08        ; Define screen colour and background (black)
             sta VICCOLOR
             lda #$90        ; Set a 16 column-wide screen
             sta VICCOLNC
@@ -88,10 +101,39 @@ Init:
             lda #>IrqHandler
             sta $0315
             cli
-
+            jsr test1l
             rts
+
+test1l:
+            ldx #0
+            ldy #0
+            lda #$1
+            sta Colour
+            lda #(49+$80)
+            jsr DrawChar
+            ldx #1
+            ldy #0
+            lda #$1
+            sta Colour
+            lda #(50+$80)
+            jsr DrawChar
+            ldx #2
+            ldy #0
+            lda #$1
+            sta Colour
+            lda #(51+$80)
+            jsr DrawChar
+            ldx #3
+            ldy #0
+            lda #$1
+            sta Colour
+            lda #(52+$80)
+            jsr DrawChar
+            rts
+
 ; Copy the graphic chars. They are subjected to be changed during the pixel-by
 ; pixel movement, so that routine gives only the initial situation.
+
 MovCh:
             ldx #0
 @loop:
@@ -142,15 +184,23 @@ IrqHandler:
             bne @cont
             lda #0
             sta IrqCn
+            lda #$05        ; Erase aliens in the current position
+            sta AlienCode1
+            lda #$05
+            sta AlienCode2
+            jsr DrawAliens
             inc AlienPosY
             lda AlienPosY
             cmp #25*8
             bne @draw
             lda #0
             sta AlienPosY
-@draw:      jsr CLS         ; If the screen has changed, make sure that the
-            lda #$FF        ; position of the cannon is updated afterwards
+@draw:      lda #$FF        ; Make sure position of the cannon is updated.
             sta OldCannonP
+            lda #$00
+            sta AlienCode1
+            lda #$01
+            sta AlienCode2
             jsr DrawAliens
 @cont:
             lda CannonPos   ; Check if the cannon position has changed
@@ -162,7 +212,7 @@ IrqHandler:
             jsr DrawCannon
 @nochange:
             inc IrqCn
-            pla             ; Retreive registers
+            pla             ; Retrieve registers
             tay
             pla
             tax
@@ -208,6 +258,9 @@ ClearCannon:
 ; AliensR1 byte is set to 0. Same for AliensR2 and AliensR3.
 
 DrawAliens:
+            lda #$FF
+            sta AliensR1
+            sta AliensR2
             ldx #$10
             lda AlienPosY      ; The position is in pixel, divide by 8
             lsr                ; to obtain position in characters
@@ -217,6 +270,7 @@ DrawAliens:
 @loop1:     dex
             ldy AlienCurrY
             lda AliensR1
+            clc
             rol
             sta AliensR1
             bcs @drawAlien0
@@ -228,6 +282,7 @@ DrawAliens:
 @loop2:     dex
             ldy AlienCurrY
             lda AliensR2
+            clc
             rol
             sta AliensR1
             bcs @drawAlien1
@@ -239,36 +294,55 @@ DrawAliens:
 @drawAlien0:
             lda #2
             sta Colour
-            lda #0
+            lda AlienCode1
             jsr DrawChar
             jmp @ret1
 @drawAlien1:
             lda #3
             sta Colour
-            lda #1
+            lda AlienCode2
             jsr DrawChar
             jmp @ret2
 
 ; Draw the character in A in the position given by the X and Y registers
 ; Since the screen is 16 characters wide, we need to shift the Y register
-; to multiply times 16 and then add the X contents. Employs Dummy1 and Dummy2
-; and Colour that indicates the color of the character.
+; to multiply times 16 and then add the X contents. It uses Dummy1 and Dummy2.
+; Colour indicates the colour code of the character. It uses 3 bytes in the
+; stack and does not change registers.
 
 DrawChar:
             sta Dummy1
             stx Dummy2
+            pha
+            txa             ; Save registers
+            pha
+            tya
+            pha
+
             tya
             asl             ; 16 columns per line
             asl
             asl
-            asl
-            clc
+            asl             ; If it shifts an 1 in the carry, this means that
+            bcc @tophalf    ; we need to write in the bottom-half of the screen
             adc Dummy2
+            tay
+            lda Dummy1
+            sta MEMSCR+255,Y
+            lda Colour
+            sta MEMCLR+255,Y
+            jmp @exit
+@tophalf:   adc Dummy2
             tay
             lda Dummy1
             sta MEMSCR,Y
             lda Colour
             sta MEMCLR,Y
+@exit:      pla             ; Retreive registers
+            tay
+            pla
+            tax
+            pla
             rts
 
 ; Clear the screen. This maybe is too slow to be used in an interrupt handler.
@@ -287,6 +361,16 @@ CLS:
             sta MEMCLR+size*3,X
             dex
             bne @loop
+            lda #5
+            sta MEMSCR,X            ; A (small) degree of loop unrolling avoids
+            sta MEMSCR+size,X       ; to mess with a 16-bit loop.
+            sta MEMSCR+size*2,X
+            sta MEMSCR+size*3,X
+            lda #0
+            sta MEMCLR,X
+            sta MEMCLR+size,X
+            sta MEMCLR+size*2,X
+            sta MEMCLR+size*3,X
             rts
 
 ; DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA
@@ -300,13 +384,16 @@ Dummy2:     .byte $00
 IrqCn:      .byte $00
 
 Colour:     .byte $00           ; Colour to be used by the printing routines
-AliensR1:   .byte $FF           ; Presence of aliens in row 1
-AliensR2:   .byte $FF           ; Same for row 2
-AliensR3:   .byte $FF           ; Same for row 3
+AliensR1:   .byte $F7           ; Presence of aliens in row 1
+AliensR2:   .byte $F7           ; Same for row 2
+AliensR3:   .byte $F7           ; Same for row 3
+AlienCode1: .byte $00           ; Character for alien row 1
+AlienCode2: .byte $00           ; Character for alien row 2
+AlienCode3: .byte $00           ; Character for alien row 3
 AlienPosX:  .byte $00           ; Horisontal position of aliens (in pixels)
 AlienPosY:  .byte $00           ; Vertical position of aliens (in pixels)
 AlienCurrY: .byte $00           ; Vertical position of alien being drawn
-CannonPos:  .byte $64           ; Horisontal position of the cannon (in pixels)
+CannonPos:  .byte $8*8          ; Horisontal position of the cannon (in pixels)
 OldCannonP: .byte $00           ; Old position of the cannon
 
 DefChars:
