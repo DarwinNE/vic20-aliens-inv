@@ -12,14 +12,20 @@
 ; The assembler used is ca65
 
 ; General-use addresses
-
         GRCHARS1 = $1C00     ; Address of user-defined characters
+
+; Colour constants
+        BLACK    = $00
+        WHITE    = $01
+        RED      = $02
+        CYAN     = $03
+        MAGENTA  = $04
+        
 
 ; KERNAL routines used
         GETIN = $FFE4
 
 ; VIC-chip addresses
-
         VICSCRHO = $9000    ; Horisontal position of the screen
         VICSCRVE = $9001    ; Vertical position of the screen
         VICCOLNC = $9002    ; Screen width in columns and video memory addr.
@@ -102,12 +108,13 @@ Init:
             sta $0315
             cli
             jsr test1l
+            jsr testbombs
             rts
 
 test1l:
             ldx #0
             ldy #0
-            lda #$1
+            lda #WHITE
             sta Colour
             lda #(49+$80)
             jsr DrawChar
@@ -131,6 +138,28 @@ test1l:
             jsr DrawChar
             rts
 
+testbombs:
+            lda #3
+            sta BombPosX
+            lda #6
+            sta BombPosX+1
+            lda #8
+            sta BombPosX+2
+            lda #13
+            sta BombPosX+7
+            lda #1
+            sta BombSpeed
+            sta BombSpeed+1
+            sta BombSpeed+2
+            lda #2
+            sta BombSpeed+7
+            lda #2
+            sta BombPosY
+            sta BombPosY+1
+            sta BombPosY+2
+            sta BombPosY+7
+            rts
+
 ; Copy the graphic chars. They are subjected to be changed during the pixel-by
 ; pixel movement, so that routine gives only the initial situation.
 
@@ -140,7 +169,7 @@ MovCh:
             lda DefChars,x
             sta GRCHARS1,x
             inx
-            cpx #6*8
+            cpx #7*8
             bne @loop
             rts
 
@@ -180,7 +209,7 @@ IrqHandler:
             pha
 
             lda IrqCn
-            cmp #30         ; Increment the Y position of the aliens 
+            cmp #30         ; Increment the Y position of the aliens
             bne @cont
             lda #0
             sta IrqCn
@@ -188,6 +217,7 @@ IrqHandler:
             sta AlienCode1
             lda #$05
             sta AlienCode2
+            jsr FallBombs   ; Make bombs fall
             jsr DrawAliens
             inc AlienPosY
             lda AlienPosY
@@ -202,8 +232,7 @@ IrqHandler:
             lda #$01
             sta AlienCode2
             jsr DrawAliens
-@cont:
-            lda CannonPos   ; Check if the cannon position has changed
+@cont:      lda CannonPos   ; Check if the cannon position has changed
             cmp OldCannonP
             beq @nochange
             jsr ClearCannon
@@ -284,7 +313,7 @@ DrawAliens:
             lda AliensR2
             clc
             rol
-            sta AliensR1
+            sta AliensR2
             bcs @drawAlien1
 @ret2:      dex
             bne @loop2
@@ -292,17 +321,128 @@ DrawAliens:
             rts
 
 @drawAlien0:
-            lda #2
+            lda #RED
             sta Colour
             lda AlienCode1
             jsr DrawChar
             jmp @ret1
 @drawAlien1:
-            lda #3
+            lda #CYAN
             sta Colour
             lda AlienCode2
             jsr DrawChar
             jmp @ret2
+
+; Control bombs dropping. A maximum of 8 bombs can be falling at the same
+; time. A bomb is active and falling if its speed is greater than 0.
+; BombSpeed, BombPosX and BombPosY are the arrays containing the speed and the
+; positions. Exploit tmp1 and tmp2, change registers A, X, Y.
+; This routine does three things:
+;
+; 1 - For each alien alive, and for each of the 8 bombs available, decide if
+;     a bomb is dropped by drawing a random number
+;
+; 2 - Update the positions of the bombs active in the screen and check for
+;     collisions.
+; 
+; 3 - Draw the bombs in the new positions on the screen.
+;
+
+FallBombs:  ldx #$8
+            lda AlienPosY       ; The position is in pixel, divide by 8
+            lsr                 ; to obtain position in characters
+            lsr
+            lsr
+            sta AlienCurrY      ; This byte contains the current position of
+@loop1:     ldy AlienCurrY      ; aliens.
+            lda AliensR1        ; Shift AliensR1 and check the carry to see
+            clc                 ; which aliens are alive.
+            rol
+            sta AliensR1
+            bcc @ret1
+            jsr DropBomb
+@ret1:      dex
+            bne @loop1          ; End of loop for processing the first line
+            inc AlienCurrY
+            inc AlienCurrY
+            ldx #$8
+@loop2:     ldy AlienCurrY
+            lda AliensR2
+            clc
+            rol
+            sta AliensR2
+            bcc @ret2
+            jsr DropBomb
+@ret2:      dex
+            bne @loop2
+
+            ldx #0              ; Update the position of the bombs
+@loop3:     lda BombSpeed,X     ; Check that the bomb is active (speed>0)
+            cmp #0
+            beq @cont
+            clc                 ; If speed >0, update current Y position
+            adc BombPosY,X
+            cmp #31             ; Check if we reached the last line
+            bcc @stillf
+            lda #0              ; In this case, destroy the bomb
+            sta BombSpeed,X
+@stillf:    sta BombPosY,X
+            ; At this point we should check for collisions!
+@cont:      inx
+            cpx #08
+            bne @loop3
+
+DrawBombs:  ldx #0              ; Draw bombs
+            lda #MAGENTA        ; Colour of the bombs
+            sta Colour
+@loop4:     stx tmp1
+            lda BombSpeed,X     ; Do not draw inactive bombs
+            cmp #0
+            beq @notmove
+            lda BombPosX,X
+            sta tmp2            ; Store the X position of the bomb
+            lda BombPosOY,X
+            cmp BombPosY,X
+            beq @notmove
+            tay
+            lda #5              ; Erase the previous bomb
+            ldx tmp2            ; Load the X position
+            jsr DrawChar        ; Erase the bomb in the old position
+            ldx tmp1
+            lda BombPosY,X
+            sta BombPosOY,X     ; Save the current position
+            tay
+            lda #6
+            ldx tmp2
+            jsr DrawChar        ; Draw the bomb in the new position
+@notmove:   ldx tmp1
+            inx
+            cpx #08
+            bne @loop4
+            rts
+
+; Decide if a bomb should be dropped or not.
+; X should contain the current alien being processed in the line.
+
+DropBomb:   jsr GetRand         ; We must not change X here
+            lda Random          ; Get a random number and check if it is less
+            cmp #10             ; than a given threshold
+            bcc @nobomb
+            ldy #$FF            ; That will overflow to 0 at the first iny
+@searchlp:  iny
+            cpy #08             ; Check if there is still place for bombs
+            beq @nobomb
+            lda #0
+            cmp BombSpeed,Y     ; Check if the current bomb is not active
+            bne @searchlp
+            lda #1
+            sta BombSpeed,Y
+            lda AlienCurrY
+            sta BombPosY,Y
+            txa
+            asl
+            sta BombPosX,Y
+@nobomb:    rts
 
 ; Draw the character in A in the position given by the X and Y registers
 ; Since the screen is 16 characters wide, we need to shift the Y register
@@ -373,15 +513,47 @@ CLS:
             sta MEMCLR+size*3,X
             rts
 
+
+; Random number generation routine. Adapted from here: 
+; http://sleepingelephant.com/ipw-web/bulletin/bb/viewtopic.php?t=2304
+; Creates a pseudo-random number in Random and Random+1
+; Change register A and employs tmp1
+
+GetRand:
+            LDA Random+1
+            STA tmp1
+            LDA Random
+            ASL
+            ROL tmp1
+            ASL
+            ROL tmp1
+            CLC
+            ADC Random
+            PHA
+            LDA tmp1
+            ADC Random+1
+            STA Random+1
+            PLA
+            CLC             ; added this instruction - kweepa
+            ADC #$11
+            STA Random
+            LDA Random+1
+            ADC #$36
+            STA Random+1
+            RTS
+
 ; DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA
 ;
 ; Data and configuration settings.
 ;
 ; DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA
 
+Random:     .word $0000
 Dummy1:     .byte $00
 Dummy2:     .byte $00
 IrqCn:      .byte $00
+tmp1:       .byte $00
+tmp2:       .byte $00
 
 Colour:     .byte $00           ; Colour to be used by the printing routines
 AliensR1:   .byte $F7           ; Presence of aliens in row 1
@@ -395,6 +567,12 @@ AlienPosY:  .byte $00           ; Vertical position of aliens (in pixels)
 AlienCurrY: .byte $00           ; Vertical position of alien being drawn
 CannonPos:  .byte $8*8          ; Horisontal position of the cannon (in pixels)
 OldCannonP: .byte $00           ; Old position of the cannon
+
+BombSpeed:  .res 8, $00         ; Array containing the speed of the bombs sent
+BombPosX:   .res 8, $00         ; Array with X positions of bombs
+BombPosY:   .res 8, $00         ; Array with Y positions of bombs
+BombPosOY:  .res 8, $00         ; Array with old Y positions of bombs
+
 
 DefChars:
             .byte %00111100     ; Alien #1, associated to ch. 0 (normally @)
@@ -414,7 +592,7 @@ DefChars:
             .byte %00111100
             .byte %01100110
             .byte %00000000
-            
+
             .byte %10000001     ; Alien #3, associated to ch. 2 (normally B)
             .byte %01111110
             .byte %11011011
@@ -442,13 +620,22 @@ DefChars:
             .byte %11101110
             .byte %11000110
 
-            .byte $0            ; Blank char, ch. 5 (E)
-            .byte $0
-            .byte $0
-            .byte $0
-            .byte $0
-            .byte $0
-            .byte $0
-            .byte $0
-            
+            .byte %00000000     ; Blank char, ch. 5 (E)
+            .byte %00000000
+            .byte %00000000
+            .byte %00000000
+            .byte %00000000
+            .byte %00000000
+            .byte %00000000
+            .byte %00000000
+
+            .byte %00000000     ; Bomb, associated to ch. 6 (normally F)
+            .byte %00000000
+            .byte %00000000
+            .byte %00011000
+            .byte %00000000
+            .byte %00000000
+            .byte %00000000
+            .byte %00000000
+
             
