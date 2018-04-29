@@ -11,8 +11,17 @@
 ;
 ; The assembler used is ca65
 
+; Difficulty constants
+        BOMBPROB = $70      ; Higher =  more bombs falling
+
 ; General-use addresses
-        GRCHARS1 = $1C00     ; Address of user-defined characters
+        GRCHARS1 = $1C00    ; Address of user-defined characters. Since in the
+                            ; unexpanded VIC the screen matrix starts at
+                            ; $1E00, there are 512 bytes free, i.e. 64 chars
+                            ; that can be defined. That leaves 3059 bytes free
+                            ; for the machine language code (counting the
+                            ; 752 SYS4109 stub in BASIC that launches the
+                            ; program.
 
 ; Colour constants
         BLACK    = $00
@@ -340,15 +349,17 @@ DrawAliens:
 ; This routine does three things:
 ;
 ; 1 - For each alien alive, and for each of the 8 bombs available, decide if
-;     a bomb is dropped by drawing a random number
-;
+;     a bomb is dropped by drawing a random number and check if it is inside
+;     a given interval
 ; 2 - Update the positions of the bombs active in the screen and check for
 ;     collisions.
-; 
 ; 3 - Draw the bombs in the new positions on the screen.
 ;
 
-FallBombs:  ldx #$8
+FallBombs:  lda #$FF
+            sta AliensR1
+            sta AliensR2
+            ldx #$8
             lda AlienPosY       ; The position is in pixel, divide by 8
             lsr                 ; to obtain position in characters
             lsr
@@ -422,11 +433,12 @@ DrawBombs:  ldx #0              ; Draw bombs
             rts
 
 ; Decide if a bomb should be dropped or not.
-; X should contain the current alien being processed in the line.
+; X should contain the current alien being processed in the line and is not
+; changed by this routine.
 
-DropBomb:   jsr GetRand         ; We must not change X here
+DropBomb:   jsr GetRand
             lda Random          ; Get a random number and check if it is less
-            cmp #10             ; than a given threshold
+            cmp #BOMBPROB       ; than a given threshold
             bcc @nobomb
             ldy #$FF            ; That will overflow to 0 at the first iny
 @searchlp:  iny
@@ -439,8 +451,9 @@ DropBomb:   jsr GetRand         ; We must not change X here
             sta BombSpeed,Y
             lda AlienCurrY
             sta BombPosY,Y
-            txa
             asl
+            clc
+            adc #$01
             sta BombPosX,Y
 @nobomb:    rts
 
@@ -458,7 +471,6 @@ DrawChar:
             pha
             tya
             pha
-
             tya
             asl             ; 16 columns per line
             asl
