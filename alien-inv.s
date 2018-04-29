@@ -117,7 +117,6 @@ Init:
             sta $0315
             cli
             jsr test1l
-            jsr testbombs
             rts
 
 test1l:
@@ -145,28 +144,6 @@ test1l:
             sta Colour
             lda #(52+$80)
             jsr DrawChar
-            rts
-
-testbombs:
-            lda #3
-            sta BombPosX
-            lda #6
-            sta BombPosX+1
-            lda #8
-            sta BombPosX+2
-            lda #13
-            sta BombPosX+7
-            lda #1
-            sta BombSpeed
-            sta BombSpeed+1
-            sta BombSpeed+2
-            lda #2
-            sta BombSpeed+7
-            lda #2
-            sta BombPosY
-            sta BombPosY+1
-            sta BombPosY+2
-            sta BombPosY+7
             rts
 
 ; Copy the graphic chars. They are subjected to be changed during the pixel-by
@@ -218,21 +195,38 @@ IrqHandler:
             pha
 
             lda IrqCn
-            cmp #30         ; Increment the Y position of the aliens
-            bne @cont
+            cmp #30         ; Exercute every 1/2 of second
+            bne @cont3
             lda #0
             sta IrqCn
             lda #$05        ; Erase aliens in the current position
             sta AlienCode1
             lda #$05
             sta AlienCode2
-            jsr FallBombs   ; Make bombs fall
             jsr DrawAliens
-            inc AlienPosY
-            lda AlienPosY
-            cmp #25*8
+            jsr FallBombs   ; Make bombs fall. Aliens will be on top of bombs
+            inc AlienPosY   ; Increment the Y position of the aliens
+            lda Direction   ; Increment or decrement the X position,
+            and #$01        ; depending on the Direction value
+            beq @negative
+@positive:  inc AlienPosX   ; The postion should be increased
+            jmp @cont
+@negative:  dec AlienPosX   ; The position should be decreased
+@cont:      lda AlienPosX
+            cmp #3
+            bcc @cont1
+            lda Direction   ; Invert the direction
+            eor #$FF
+            sta Direction
+@cont1:     cmp #$FF        ; Check if the position is negative
+            bcs @cont2
+            lda Direction   ; Invert the direction
+            eor #$FF
+            sta Direction
+@cont2:     lda AlienPosY   ; Check if the aliens came to bottom of screen
+            cmp #30*8
             bne @draw
-            lda #0
+            lda #1          ; Reset the position of aliens (placeholder)
             sta AlienPosY
 @draw:      lda #$FF        ; Make sure position of the cannon is updated.
             sta OldCannonP
@@ -241,7 +235,7 @@ IrqHandler:
             lda #$01
             sta AlienCode2
             jsr DrawAliens
-@cont:      lda CannonPos   ; Check if the cannon position has changed
+@cont3:     lda CannonPos   ; Check if the cannon position has changed
             cmp OldCannonP
             beq @nochange
             jsr ClearCannon
@@ -299,7 +293,7 @@ DrawAliens:
             lda #$FF
             sta AliensR1
             sta AliensR2
-            ldx #$10
+            ldx #8*2
             lda AlienPosY      ; The position is in pixel, divide by 8
             lsr                ; to obtain position in characters
             lsr
@@ -316,7 +310,7 @@ DrawAliens:
             bne @loop1
             inc AlienCurrY
             inc AlienCurrY
-            ldx #$10
+            ldx #8*2
 @loop2:     dex
             ldy AlienCurrY
             lda AliensR2
@@ -332,14 +326,28 @@ DrawAliens:
 @drawAlien0:
             lda #RED
             sta Colour
+            txa
+            pha
+            clc
+            adc AlienPosX
+            tax
             lda AlienCode1
             jsr DrawChar
+            pla
+            tax
             jmp @ret1
 @drawAlien1:
             lda #CYAN
             sta Colour
+            txa
+            pha
+            clc
+            adc AlienPosX
+            tax
             lda AlienCode2
             jsr DrawChar
+            pla
+            tax
             jmp @ret2
 
 ; Control bombs dropping. A maximum of 8 bombs can be falling at the same
@@ -471,18 +479,24 @@ DrawChar:
             pha
             tya
             pha
+            txa
+            cmp #16         ; Check if the X value is out of range
+            bcs @exit       ; Exit if X greater than 16 (no of columns)
             tya
-            asl             ; 16 columns per line
+            cmp #31         ; Check if the Y value is out of range
+            bcs @exit       ; Exit if Y greater than 31 (no of rows)
+            asl             ; 16 columns per line. Multiply!
             asl
             asl
             asl             ; If it shifts an 1 in the carry, this means that
             bcc @tophalf    ; we need to write in the bottom-half of the screen
+            clc
             adc Dummy2
             tay
             lda Dummy1
-            sta MEMSCR+255,Y
+            sta MEMSCR+256,Y
             lda Colour
-            sta MEMCLR+255,Y
+            sta MEMCLR+256,Y
             jmp @exit
 @tophalf:   adc Dummy2
             tay
@@ -577,6 +591,7 @@ AlienCode3: .byte $00           ; Character for alien row 3
 AlienPosX:  .byte $00           ; Horisontal position of aliens (in pixels)
 AlienPosY:  .byte $00           ; Vertical position of aliens (in pixels)
 AlienCurrY: .byte $00           ; Vertical position of alien being drawn
+Direction:  .byte $00           ; The first bit indicates aliens' X direction
 CannonPos:  .byte $8*8          ; Horisontal position of the cannon (in pixels)
 OldCannonP: .byte $00           ; Old position of the cannon
 
@@ -649,5 +664,15 @@ DefChars:
             .byte %00000000
             .byte %00000000
             .byte %00000000
+
+            .byte %11111111     ; Block, ch. 7 (normally G)
+            .byte %11111111
+            .byte %11111111
+            .byte %11111111
+            .byte %11111111
+            .byte %11111111
+            .byte %11111111
+            .byte %11111111
+            
 
             
