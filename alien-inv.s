@@ -11,8 +11,14 @@
 ;
 ; The assembler used is ca65
 
-; Difficulty constants
-        BOMBPROB = $70      ; Higher =  more bombs falling
+; Difficulty-related constants
+        BOMBPROB = $70      ; Higher = more bombs falling
+        PERIOD = 20         ; Higher = slower alien movement
+        FIRESPEED = 2       ; Higher = faster speed of cannon fire
+
+; General constants
+        NMBOMBS = 8         ; Maximum number of bombs falling at the same time
+        NMSHOTS = 8         ; Maximum number of cannon shots at the same time
 
 ; General-use addresses
         GRCHARS1 = $1C00    ; Address of user-defined characters. Since in the
@@ -23,12 +29,15 @@
                             ; 752 SYS4109 stub in BASIC that launches the
                             ; program.
 
-; Colour constants
+; Colour constants for the VIC 20
         BLACK    = $00
         WHITE    = $01
         RED      = $02
         CYAN     = $03
         MAGENTA  = $04
+        GREEN    = $05
+        BLUE     = $06
+        YELLOW   = $07
         
 
 ; KERNAL routines used
@@ -66,7 +75,6 @@ main:
             beq @mainloop
             cmp #$58        ; X: increase position of the cannon
             bne @continue1
-            ;inc CannonPos
             lda #$08
             clc
             adc CannonPos
@@ -77,13 +85,31 @@ main:
             sta CannonPos
 @continue1: cmp #$5A        ; Z: decrease position of the cannon
             bne @continue2
-            ;dec CannonPos
             sec
             lda CannonPos
             sbc #$08
             bcc @continue2
             sta CannonPos
-@continue2: jmp @mainloop
+@continue2: cmp #$20        ; Space: fire!
+            bne @continue3
+            ldx #0          ; Search for the first free shot
+@search:    lda FireSpeed,X ; (i.e. whose speed = 0)
+            cmp #0
+            beq @found
+            inx
+            cmp NMSHOTS
+            bne @search
+            jmp @continue3  ; No enough shots allowed in parallel. Abort fire.
+@found:     lda CannonPos
+            lsr
+            lsr
+            lsr
+            sta FirePosX,X
+            lda #30
+            sta FirePosY,X
+            lda #1
+            sta FireSpeed,X
+@continue3: jmp @mainloop
 
 ; INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT
 ;
@@ -117,6 +143,60 @@ Init:
             sta $0315
             cli
             jsr test1l
+            jsr DrawShield
+            rts
+
+; Draw the shields in the following positions:
+; ------------1---
+; 0---4---8---2---
+;  **  **  **  **
+
+DrawShield: ldx #1
+            ldy #29
+            lda #WHITE
+            sta Colour
+            lda #BLOCK
+            jsr DrawChar
+            ldx #2
+            jsr DrawChar
+            ldx #5
+            jsr DrawChar
+            ldx #6
+            jsr DrawChar
+            ldx #9
+            jsr DrawChar
+            ldx #10
+            jsr DrawChar
+            ldx #13
+            jsr DrawChar
+            ldx #14
+            jsr DrawChar
+
+            ldx #1
+            ldy #28
+            lda #BLOCKL
+            jsr DrawChar
+            ldx #2
+            lda #BLOCKR
+            jsr DrawChar
+            ldx #5
+            lda #BLOCKL
+            jsr DrawChar
+            ldx #6
+            lda #BLOCKR
+            jsr DrawChar
+            ldx #9
+            lda #BLOCKL
+            jsr DrawChar
+            ldx #10
+            lda #BLOCKR
+            jsr DrawChar
+            ldx #13
+            lda #BLOCKL
+            jsr DrawChar
+            ldx #14
+            lda #BLOCKR
+            jsr DrawChar
             rts
 
 test1l:
@@ -127,21 +207,12 @@ test1l:
             lda #(49+$80)
             jsr DrawChar
             ldx #1
-            ldy #0
-            lda #$1
-            sta Colour
-            lda #(50+$80)
+            lda #(52+$80)
             jsr DrawChar
             ldx #2
-            ldy #0
-            lda #$1
-            sta Colour
             lda #(51+$80)
             jsr DrawChar
             ldx #3
-            ldy #0
-            lda #$1
-            sta Colour
             lda #(52+$80)
             jsr DrawChar
             rts
@@ -155,7 +226,7 @@ MovCh:
             lda DefChars,x
             sta GRCHARS1,x
             inx
-            cpx #7*8
+            cpx #(LASTCH+1)*8
             bne @loop
             rts
 
@@ -195,15 +266,15 @@ IrqHandler:
             pha
 
             lda IrqCn
-            cmp #30         ; Exercute every 1/2 of second
+            cmp #PERIOD     ; Exercute every PERIOD/60 of second
             bne @cont3
             lda #0
             sta IrqCn
-            lda #$05        ; Erase aliens in the current position
+            lda #EMPTY      ; Erase aliens in the current position
             sta AlienCode1
-            lda #$05
+            lda #EMPTY
             sta AlienCode2
-            jsr DrawAliens
+            jsr DrawAliens  ; Redraw aliens
             jsr FallBombs   ; Make bombs fall. Aliens will be on top of bombs
             inc AlienPosY   ; Increment the Y position of the aliens
             lda Direction   ; Increment or decrement the X position,
@@ -224,15 +295,15 @@ IrqHandler:
             eor #$FF
             sta Direction
 @cont2:     lda AlienPosY   ; Check if the aliens came to bottom of screen
-            cmp #30*8
+            cmp #28*8
             bne @draw
             lda #1          ; Reset the position of aliens (placeholder)
             sta AlienPosY
 @draw:      lda #$FF        ; Make sure position of the cannon is updated.
             sta OldCannonP
-            lda #$00
+            lda #ALIEN1
             sta AlienCode1
-            lda #$01
+            lda #ALIEN2
             sta AlienCode2
             jsr DrawAliens
 @cont3:     lda CannonPos   ; Check if the cannon position has changed
@@ -242,7 +313,7 @@ IrqHandler:
             lda CannonPos   ; Update the OldCannonP value to the current pos.
             sta OldCannonP
             jsr DrawCannon
-@nochange:
+@nochange:  jsr CannonFire  ; Update the position of cannon shots
             inc IrqCn
             pla             ; Retrieve registers
             tay
@@ -262,9 +333,9 @@ DrawCannon:
             lsr
             tax
             ldy #30             ; Vertical position of the cannon
-            lda #$1             ; Cannon in white
+            lda #WHITE          ; Cannon in white
             sta Colour
-            lda #$4             ; Cannon char
+            lda #CANNON         ; Cannon char
             jsr DrawChar
             rts
 
@@ -278,9 +349,9 @@ ClearCannon:
             lsr
             tax
             ldy #30             ; Vertical position of the cannon
-            lda #$1             ; Cannon in white
+            lda #WHITE          ; Cannon in white
             sta Colour
-            lda #$5             ; Space
+            lda #EMPTY          ; Space
             jsr DrawChar
 
 ; Draw the aliens on the screen. They are several lines with at most 8 aliens
@@ -350,6 +421,59 @@ DrawAliens:
             tax
             jmp @ret2
 
+; Control the movement of the bullet/laser shot fired by the cannon.
+
+CannonFire: ldx #0              ; Update the position of the shot
+@loop:      lda FireSpeed,X     ; Check if the shot is active (speed>0)
+            cmp #0
+            beq @cont
+            lda FirePosY,X
+            sec                 ; If speed >0, update current Y position
+            sbc FireSpeed,X     ; The movement is vertical, so subtract
+            cmp #1              ; Check if we reached the top of the screen
+            bcs @stillf
+            lda #$FF            ; In this case, destroy the bomb
+            sta FireSpeed,X
+@stillf:    sta FirePosY,X
+            ; At this point we should check for collisions!
+@cont:      inx
+            cpx #NMSHOTS
+            bne @loop
+DrawShots:  ldx #0              ; Draw bombs
+            lda #YELLOW         ; Colour of the shots
+            sta Colour
+@loop4:     stx tmp1
+            lda FireSpeed,X     ; Do not draw inactive shots
+            cmp #0
+            beq @notmove
+            lda FirePosX,X
+            sta tmp2            ; Store the X position of the shot
+            lda FirePosOY,X
+            cmp FirePosY,X
+            beq @notmove
+            tay
+            lda #EMPTY          ; Erase the previous shot
+            ldx tmp2            ; Load the X position
+            jsr DrawChar        ; Erase the shot in the old position
+            ldx tmp1
+            lda FireSpeed,X     ; Check if the shot should be destroyed
+            cmp #$FF
+            bne @normal
+            lda #0
+            sta FireSpeed,X
+@normal:    lda FirePosY,X
+            sta FirePosOY,X     ; Save the current position
+            tay
+            lda #SHOT
+            ldx tmp2
+            jsr DrawChar        ; Draw the shot in the new position
+@notmove:   ldx tmp1
+            inx
+            cpx #NMSHOTS
+            bne @loop4
+            rts
+
+
 ; Control bombs dropping. A maximum of 8 bombs can be falling at the same
 ; time. A bomb is active and falling if its speed is greater than 0.
 ; BombSpeed, BombPosX and BombPosY are the arrays containing the speed and the
@@ -367,7 +491,7 @@ DrawAliens:
 FallBombs:  lda #$FF
             sta AliensR1
             sta AliensR2
-            ldx #$8
+            ldx #NMBOMBS
             lda AlienPosY       ; The position is in pixel, divide by 8
             lsr                 ; to obtain position in characters
             lsr
@@ -384,7 +508,7 @@ FallBombs:  lda #$FF
             bne @loop1          ; End of loop for processing the first line
             inc AlienCurrY
             inc AlienCurrY
-            ldx #$8
+            ldx #NMBOMBS
 @loop2:     ldy AlienCurrY
             lda AliensR2
             clc
@@ -408,7 +532,7 @@ FallBombs:  lda #$FF
 @stillf:    sta BombPosY,X
             ; At this point we should check for collisions!
 @cont:      inx
-            cpx #08
+            cpx #NMBOMBS
             bne @loop3
 
 DrawBombs:  ldx #0              ; Draw bombs
@@ -424,19 +548,19 @@ DrawBombs:  ldx #0              ; Draw bombs
             cmp BombPosY,X
             beq @notmove
             tay
-            lda #5              ; Erase the previous bomb
+            lda #EMPTY          ; Erase the previous bomb
             ldx tmp2            ; Load the X position
             jsr DrawChar        ; Erase the bomb in the old position
             ldx tmp1
             lda BombPosY,X
             sta BombPosOY,X     ; Save the current position
             tay
-            lda #6
+            lda #BOMB
             ldx tmp2
             jsr DrawChar        ; Draw the bomb in the new position
 @notmove:   ldx tmp1
             inx
-            cpx #08
+            cpx #NMBOMBS
             bne @loop4
             rts
 
@@ -450,7 +574,7 @@ DropBomb:   jsr GetRand
             bcc @nobomb
             ldy #$FF            ; That will overflow to 0 at the first iny
 @searchlp:  iny
-            cpy #08             ; Check if there is still place for bombs
+            cpy #NMBOMBS        ; Check if there is still place for bombs
             beq @nobomb
             lda #0
             cmp BombSpeed,Y     ; Check if the current bomb is not active
@@ -515,24 +639,24 @@ DrawChar:
 CLS:
             size=16*31/4
             ldx #size
-@loop:      lda #5
+@loop:      lda #EMPTY
             sta MEMSCR,X            ; A (small) degree of loop unrolling avoids
             sta MEMSCR+size,X       ; to mess with a 16-bit loop.
             sta MEMSCR+size*2,X
             sta MEMSCR+size*3,X
-            lda #0
+            lda #BLACK
             sta MEMCLR,X
             sta MEMCLR+size,X
             sta MEMCLR+size*2,X
             sta MEMCLR+size*3,X
             dex
             bne @loop
-            lda #5
+            lda #EMPTY
             sta MEMSCR,X            ; A (small) degree of loop unrolling avoids
             sta MEMSCR+size,X       ; to mess with a 16-bit loop.
             sta MEMSCR+size*2,X
             sta MEMSCR+size*3,X
-            lda #0
+            lda #BLACK
             sta MEMCLR,X
             sta MEMCLR+size,X
             sta MEMCLR+size*2,X
@@ -595,13 +719,19 @@ Direction:  .byte $00           ; The first bit indicates aliens' X direction
 CannonPos:  .byte $8*8          ; Horisontal position of the cannon (in pixels)
 OldCannonP: .byte $00           ; Old position of the cannon
 
-BombSpeed:  .res 8, $00         ; Array containing the speed of the bombs sent
-BombPosX:   .res 8, $00         ; Array with X positions of bombs
-BombPosY:   .res 8, $00         ; Array with Y positions of bombs
-BombPosOY:  .res 8, $00         ; Array with old Y positions of bombs
+BombSpeed:  .res NMBOMBS, $00   ; Array containing the speed of the bombs sent
+BombPosX:   .res NMBOMBS, $00   ; Array with X positions of bombs
+BombPosY:   .res NMBOMBS, $00   ; Array with Y positions of bombs
+BombPosOY:  .res NMBOMBS, $00   ; Array with old Y positions of bombs
+
+FireSpeed:  .res NMSHOTS, $00   ; Array containing the speed of the bullet sent
+FirePosX:   .res NMSHOTS, $00   ; Array with X positions of bullet
+FirePosY:   .res NMSHOTS, $00   ; Array with Y positions of bullet
+FirePosOY:  .res NMSHOTS, $00   ; Array with old Y positions of bullet
 
 
 DefChars:
+            ALIEN1 = 0
             .byte %00111100     ; Alien #1, associated to ch. 0 (normally @)
             .byte %01111110
             .byte %11011011
@@ -611,6 +741,7 @@ DefChars:
             .byte %01000010
             .byte %10000001
 
+            ALIEN2 = 1
             .byte %00111100     ; Alien #2, associated to ch. 1 (normally A)
             .byte %01111110
             .byte %11011011
@@ -620,6 +751,7 @@ DefChars:
             .byte %01100110
             .byte %00000000
 
+            ALIEN3 = 2
             .byte %10000001     ; Alien #3, associated to ch. 2 (normally B)
             .byte %01111110
             .byte %11011011
@@ -629,6 +761,7 @@ DefChars:
             .byte %11000011
             .byte %00100100
 
+            ALIEN4 = 3
             .byte %10000001     ; Alien #4, associated to ch. 3 (normally C)
             .byte %01111110
             .byte %11011011
@@ -638,15 +771,17 @@ DefChars:
             .byte %01000010
             .byte %10000001
 
+            CANNON = 4
             .byte %00010000     ; Cannon, associated to ch. 4 (normally D)
             .byte %00111000
             .byte %00111000
-            .byte %01111100
-            .byte %01111100
+            .byte %00111000
+            .byte %00111000
             .byte %01111100
             .byte %11101110
             .byte %11000110
 
+            EMPTY = 5
             .byte %00000000     ; Blank char, ch. 5 (E)
             .byte %00000000
             .byte %00000000
@@ -656,6 +791,7 @@ DefChars:
             .byte %00000000
             .byte %00000000
 
+            BOMB = 6
             .byte %00000000     ; Bomb, associated to ch. 6 (normally F)
             .byte %00000000
             .byte %00000000
@@ -665,6 +801,7 @@ DefChars:
             .byte %00000000
             .byte %00000000
 
+            BLOCK = 7
             .byte %11111111     ; Block, ch. 7 (normally G)
             .byte %11111111
             .byte %11111111
@@ -673,6 +810,36 @@ DefChars:
             .byte %11111111
             .byte %11111111
             .byte %11111111
-            
+
+            BLOCKL = 8
+            .byte %00000000     ; Block, ch. 8 (normally H)
+            .byte %00000000
+            .byte %00000000
+            .byte %00000111
+            .byte %00011111
+            .byte %00111111
+            .byte %01111111
+            .byte %01111111
+
+            BLOCKR = 9
+            .byte %00000000     ; Block, ch. 9 (normally I)
+            .byte %00000000
+            .byte %00000000
+            .byte %11100000     
+            .byte %11111000
+            .byte %11111100
+            .byte %11111110
+            .byte %11111110
+
+            SHOT = 10
+            .byte %00010000     ; Block, ch. 10 (normally L)
+            .byte %00010000
+            .byte %00010000
+            .byte %00010000
+            .byte %00000000
+            .byte %00010000
+            .byte %00000000
+            .byte %00010000
+            LASTCH = SHOT
 
             
