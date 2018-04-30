@@ -3,18 +3,40 @@
 ;             by Davide Bucci, April 2018
 ;
 ; This program is a Space-Invaders clone that runs on an unexpanded VIC-20
+;
+; The objective is not to reproduce perfectly the original game, but more to
+; propose something very playable and quite fast on the VIC-20. Arcadia has been
+; inspiring, even if the gameplay is very different from Space Invaders.
+;
+; FUTURE MODE ON (for the moment everything is still character-based)
 ; A certain amount of work has been done to ensure that the graphics is smooth
 ; enough so that the effect hopefully appears to be quite polished.
 ; It is my first attempt to write a complete game in 6502 assembly language,
 ; even if I learnt that language many years ago and I used it mainly as a
 ; complement for BASIC programs.
+; FUTURE MODE OFF
 ;
 ; The assembler used is ca65
+;
+; The bombs drop by aliens are described by four arrays:
+; BombSpeed, BombPosX, BombPosY and BombPosOY. Their name should be quite
+; self-descriptive, except for BombPosOY, that contains the old position of the
+; bombs (Y coordinate, as bombs fall vertically) and is used for erasing the
+; bombs when they are to be drawn at the new coordinate. Speed is positive for
+; bombs falling.
+;
+; The cannon shots operates with a very similar principle with respect to bombs
+; and are described by FireSpeed, FirePosX, FirePosY and FirePosOY. The only
+; difference is that a positive speed means that shots move upwards.
+;
+; A speed of $FF (or 255 in decimal) means that the bomb is exploding and
+; should be destroyed; i.e. erased from the screen and then deactivated, by
+; putting a final speed of 0.
+
 
 ; Difficulty-related constants
         BOMBPROB = $70      ; Higher = more bombs falling
         PERIOD = 20         ; Higher = slower alien movement
-        FIRESPEED = 2       ; Higher = faster speed of cannon fire
 
 ; General constants
         NMBOMBS = 8         ; Maximum number of bombs falling at the same time
@@ -825,7 +847,7 @@ DefChars:
             .byte %00000000     ; Block, ch. 9 (normally I)
             .byte %00000000
             .byte %00000000
-            .byte %11100000     
+            .byte %11100000
             .byte %11111000
             .byte %11111100
             .byte %11111110
