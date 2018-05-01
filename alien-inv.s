@@ -35,7 +35,7 @@
 
 
 ; Difficulty-related constants
-        BOMBPROB = $70      ; Higher = more bombs falling
+        BOMBPROB = $A0      ; Higher = less bombs falling
         PERIOD = 20         ; Higher = slower alien movement
 
 ; General constants
@@ -94,8 +94,8 @@ main:
             jsr DrawAliens
 
 @mainloop:  jsr GETIN
-            sta keyin
             beq @mainloop
+            sta keyin
             cmp #$58        ; X: increase position of the cannon
             bne @continue1
             lda #$08
@@ -106,16 +106,16 @@ main:
             bcc @continue1
             lda #$7F
             sta CannonPos
-            lda keyin
-@continue1: cmp #$5A        ; Z: decrease position of the cannon
+@continue1: lda keyin
+            cmp #$5A        ; Z: decrease position of the cannon
             bne @continue2
             sec
             lda CannonPos
             sbc #$08
             bcc @continue2
             sta CannonPos
-            lda keyin
-@continue2: cmp #$20        ; Space: fire!
+@continue2: lda keyin
+            cmp #$20        ; Space: fire!
             bne @continue3
             ldx #0          ; Search for the first free shot
 @search:    lda FireSpeed,X ; (i.e. whose speed = 0)
@@ -160,7 +160,6 @@ Init:
             sta VICCHGEN    ; while leaving ch. 128-255 to their original pos.
             jsr MovCh       ; Load the graphic chars
             jsr CLS
-
             sei             ; Configure the interrupt handler
             lda #<IrqHandler
             sta $0314
@@ -322,11 +321,9 @@ IrqHandler:
 @cont2:     lda AlienPosY   ; Check if the aliens came to bottom of screen
             cmp #28*8
             bne @draw
-            lda #1          ; Reset the position of aliens (placeholder)
+            lda #2          ; Reset the position of aliens (placeholder)
             sta AlienPosY
-@draw:      lda #$FF        ; Make sure position of the cannon is updated.
-            sta OldCannonP
-            lda #ALIEN1
+@draw:      lda #ALIEN1
             sta AlienCode1
             lda #ALIEN2
             sta AlienCode2
@@ -386,8 +383,9 @@ ClearCannon:
 ; AliensR1 byte is set to 0. Same for AliensR2 and AliensR3.
 
 DrawAliens:
-            lda #$FF
+            lda AliensR1s
             sta AliensR1
+            lda AliensR2s
             sta AliensR2
             ldx #8*2
             lda AlienPosY      ; The position is in pixel, divide by 8
@@ -460,7 +458,6 @@ CannonFire: ldx #0              ; Update the position of the shot
             lda #$FF            ; In this case, destroy the bomb
             sta FireSpeed,X
 @stillf:    sta FirePosY,X
-            ; At this point we should check for collisions!
 @cont:      inx
             cpx #NMSHOTS
             bne @loop
@@ -487,10 +484,14 @@ DrawShots:  ldx #0              ; Draw bombs
             lda #0
             sta FireSpeed,X
 @normal:    lda FirePosY,X
+            sta tmp3
             sta FirePosOY,X     ; Save the current position
             tay
-            lda #SHOT
             ldx tmp2
+            jsr GetChar         ; Check for a collision
+            cmp #EMPTY
+            bne @collision
+            lda #SHOT
             jsr DrawChar        ; Draw the shot in the new position
 @notmove:   ldx tmp1
             inx
@@ -498,6 +499,59 @@ DrawShots:  ldx #0              ; Draw bombs
             bne @loop4
             rts
 
+; Here we know that a collision has been taken place, so we should see what
+; element has been encountered by the bullet. A contains the character that
+; has been found
+
+@collision: cmp #ALIEN1
+            beq @alienshot
+            cmp #ALIEN2
+            beq @alienshot
+            cmp #ALIEN3
+            beq @alienshot
+            cmp #ALIEN4
+            beq @alienshot
+            cmp #BOMB
+            beq @bombshot
+            cmp #BLOCK
+            beq @bunkershot
+            cmp #BLOCKR
+            beq @bunkershot
+            cmp #BLOCKL
+            beq @bunkershot
+            jmp @notmove
+
+; Handle the different collisions.
+; X and Y contain the position of the collision, also available in tmp2 and
+; tmp3 respectively
+
+@alienshot:
+@bombshot:  lda #EXPLOSION1
+            jsr DrawChar
+            lda #$00
+            ldx tmp1
+            sta FireSpeed,X
+            ldx #$0
+@searchb:   lda BombPosX,X      ; Compare the X position of the bomb
+            cmp tmp2
+            bne @searchl
+            lda BombPosY,X      ; Compare the Y positions
+            cmp tmp3
+            bne @searchl
+            lda #$0             ; Bomb hit found: destroy it!
+            sta BombSpeed,X
+@searchl:   inx
+            cpx #NMBOMBS
+            bne @searchb
+            jmp @notmove
+
+@bunkershot:
+            lda #EXPLOSION1
+            jsr DrawChar
+            lda #$FF
+            ldx tmp1
+            sta FireSpeed,X
+            jmp @notmove
 
 ; Control bombs dropping. A maximum of 8 bombs can be falling at the same
 ; time. A bomb is active and falling if its speed is greater than 0.
@@ -513,8 +567,9 @@ DrawShots:  ldx #0              ; Draw bombs
 ; 3 - Draw the bombs in the new positions on the screen.
 ;
 
-FallBombs:  lda #$FF
+FallBombs:  lda AliensR1s
             sta AliensR1
+            lda AliensR2s
             sta AliensR2
             ldx #NMBOMBS
             lda AlienPosY       ; The position is in pixel, divide by 8
@@ -555,7 +610,7 @@ FallBombs:  lda #$FF
             lda #0              ; In this case, destroy the bomb
             sta BombSpeed,X
 @stillf:    sta BombPosY,X
-            ; At this point we should check for collisions!
+                                ; At this point we should check for collisions!
 @cont:      inx
             cpx #NMBOMBS
             bne @loop3
@@ -590,8 +645,7 @@ DrawBombs:  ldx #0              ; Draw bombs
             rts
 
 ; Decide if a bomb should be dropped or not.
-; X should contain the current alien being processed in the line and is not
-; changed by this routine.
+; AlienCurrX should contain the current alien being processed in the line.
 
 DropBomb:   jsr GetRand
             lda Random          ; Get a random number and check if it is less
@@ -608,6 +662,7 @@ DropBomb:   jsr GetRand
             sta BombSpeed,Y
             lda AlienCurrY
             sta BombPosY,Y
+            txa
             asl
             clc
             adc #$01
@@ -620,14 +675,9 @@ DropBomb:   jsr GetRand
 ; Colour indicates the colour code of the character. It uses 3 bytes in the
 ; stack and does not change registers.
 
-DrawChar:
-            sta Dummy1
+DrawChar:   sta Dummy1
             stx Dummy2
-            pha
-            txa             ; Save registers
-            pha
-            tya
-            pha
+            sty Dummy3
             txa
             cmp #16         ; Check if the X value is out of range
             bcs @exit       ; Exit if X greater than 16 (no of columns)
@@ -653,14 +703,41 @@ DrawChar:
             sta MEMSCR,Y
             lda Colour
             sta MEMCLR,Y
-@exit:      pla             ; Retreive registers
+@exit:      lda Dummy1
+            ldx Dummy2
+            ldy Dummy3
+            rts
+
+; Get the screen code of the character in the X and Y locations.
+; The character is returned in A.
+
+GetChar:    stx Dummy2
+            sty Dummy3
+            txa
+            cmp #16         ; Check if the X value is out of range
+            bcs @exit       ; Exit if X greater than 16 (no of columns)
+            tya
+            cmp #31         ; Check if the Y value is out of range
+            bcs @exit       ; Exit if Y greater than 31 (no of rows)
+            asl             ; 16 columns per line. Multiply!
+            asl
+            asl
+            asl             ; If it shifts an 1 in the carry, this means that
+            bcc @tophalf    ; we need to write in the bottom-half of the screen
+            clc
+            adc Dummy2
             tay
-            pla
-            tax
-            pla
+            lda MEMSCR+256,Y
+            jmp @exit
+@tophalf:   adc Dummy2
+            tay
+            lda MEMSCR,Y
+@exit:      ldx Dummy2
+            ldy Dummy3
             rts
 
 ; Clear the screen. This maybe is too slow to be used in an interrupt handler.
+
 CLS:
             size=16*31/4
             ldx #size
@@ -689,33 +766,32 @@ CLS:
             rts
 
 
-; Random number generation routine. Adapted from here: 
+; Random number generation routine. Adapted from here:
 ; http://sleepingelephant.com/ipw-web/bulletin/bb/viewtopic.php?t=2304
 ; Creates a pseudo-random number in Random and Random+1
 ; Change register A and employs tmp1
 
-GetRand:
-            LDA Random+1
-            STA tmp1
-            LDA Random
-            ASL
-            ROL tmp1
-            ASL
-            ROL tmp1
-            CLC
-            ADC Random
-            PHA
-            LDA tmp1
-            ADC Random+1
-            STA Random+1
-            PLA
-            CLC             ; added this instruction - kweepa
-            ADC #$11
-            STA Random
-            LDA Random+1
-            ADC #$36
-            STA Random+1
-            RTS
+GetRand:    lda Random+1
+            sta tmp1
+            lda Random
+            asl
+            rol tmp1
+            asl
+            rol tmp1
+            clc
+            adc Random
+            pha
+            lda tmp1
+            adc Random+1
+            sta Random+1
+            pla
+            clc             ; added this instruction - kweepa
+            adc #$11
+            sta Random
+            lda Random+1
+            adc #$36
+            sta Random+1
+            rts
 
 ; DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA
 ;
@@ -724,22 +800,28 @@ GetRand:
 ; DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA
 
 Random:     .word $0000
-Dummy1:     .byte $00
+Dummy1:     .byte $00           ; Employed in DrawChar
 Dummy2:     .byte $00
+Dummy3:     .byte $00
 IrqCn:      .byte $00
 tmp1:       .byte $00
 tmp2:       .byte $00
+tmp3:       .byte $00
 keyin:      .byte $00           ; Last key typed.
 
 Colour:     .byte $00           ; Colour to be used by the printing routines
-AliensR1:   .byte $F7           ; Presence of aliens in row 1
-AliensR2:   .byte $F7           ; Same for row 2
-AliensR3:   .byte $F7           ; Same for row 3
+AliensR1s:  .byte $FF           ; Presence of aliens in row 1
+AliensR2s:  .byte $FF           ; Same for row 2
+AliensR3s:  .byte $FF           ; Same for row 3
+AliensR1:   .byte $FF           ; Presence of aliens in row 1 (temporary)
+AliensR2:   .byte $FF           ; Same for row 2 (temporary)
+AliensR3:   .byte $FF           ; Same for row 3 (temporary)
 AlienCode1: .byte $00           ; Character for alien row 1
 AlienCode2: .byte $00           ; Character for alien row 2
 AlienCode3: .byte $00           ; Character for alien row 3
 AlienPosX:  .byte $00           ; Horisontal position of aliens (in pixels)
 AlienPosY:  .byte $00           ; Vertical position of aliens (in pixels)
+AlienCurrX: .byte $00           ; Horisontal position of the alien (bomb drop).
 AlienCurrY: .byte $00           ; Vertical position of alien being drawn
 Direction:  .byte $00           ; The first bit indicates aliens' X direction
 CannonPos:  .byte $8*8          ; Horisontal position of the cannon (in pixels)
@@ -866,6 +948,17 @@ DefChars:
             .byte %00010000
             .byte %00000000
             .byte %00010000
-            LASTCH = SHOT
+
+            EXPLOSION1=11
+            .byte %01000000     ; Block, ch. 11 (normally M)
+            .byte %10010010
+            .byte %01000100
+            .byte %0011100
+            .byte %10011010
+            .byte %10110001
+            .byte %01100011
+            .byte %10000001
+            
+            LASTCH = EXPLOSION1
 
             
