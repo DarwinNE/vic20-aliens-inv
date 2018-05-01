@@ -94,6 +94,7 @@ main:
             jsr DrawAliens
 
 @mainloop:  jsr GETIN
+            sta keyin
             beq @mainloop
             cmp #$58        ; X: increase position of the cannon
             bne @continue1
@@ -105,6 +106,7 @@ main:
             bcc @continue1
             lda #$7F
             sta CannonPos
+            lda keyin
 @continue1: cmp #$5A        ; Z: decrease position of the cannon
             bne @continue2
             sec
@@ -112,6 +114,7 @@ main:
             sbc #$08
             bcc @continue2
             sta CannonPos
+            lda keyin
 @continue2: cmp #$20        ; Space: fire!
             bne @continue3
             ldx #0          ; Search for the first free shot
@@ -726,6 +729,7 @@ Dummy2:     .byte $00
 IrqCn:      .byte $00
 tmp1:       .byte $00
 tmp2:       .byte $00
+keyin:      .byte $00           ; Last key typed.
 
 Colour:     .byte $00           ; Colour to be used by the printing routines
 AliensR1:   .byte $F7           ; Presence of aliens in row 1
