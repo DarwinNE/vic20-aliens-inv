@@ -1,6 +1,6 @@
 ;         V I C   A L I E N - I N V A D E R S
 ;
-;             by Davide Bucci, April 2018
+;             by Davide Bucci, April-May 2018
 ;
 ; This program is a Space-Invaders clone that runs on an unexpanded VIC-20
 ;
@@ -35,12 +35,12 @@
 
 
 ; Difficulty-related constants
-        BOMBPROB = $A0      ; Higher = less bombs falling
+        BOMBPROB = $F0      ; Higher = less bombs falling
         PERIOD = 20         ; Higher = slower alien movement
 
 ; General constants
         NMBOMBS = 8         ; Maximum number of bombs falling at the same time
-        NMSHOTS = 8         ; Maximum number of cannon shots at the same time
+        NMSHOTS = 2         ; Maximum number of cannon shots at the same time
 
 ; General-use addresses
         GRCHARS1 = $1C00    ; Address of user-defined characters. Since in the
@@ -109,8 +109,8 @@ main:
 @continue1: lda keyin
             cmp #$5A        ; Z: decrease position of the cannon
             bne @continue2
-            sec
             lda CannonPos
+            sec
             sbc #$08
             bcc @continue2
             sta CannonPos
@@ -525,7 +525,31 @@ DrawShots:  ldx #0              ; Draw bombs
 ; X and Y contain the position of the collision, also available in tmp2 and
 ; tmp3 respectively
 
-@alienshot:
+@alienshot: txa
+            sec
+            sbc AlienPosX
+            lsr
+            tax
+            lda #$01
+@contsh:    asl
+            dex
+            bne @contsh
+            pha
+            lda AlienPosY
+            lsr
+            lsr
+            lsr
+            sta tmp4
+            pla
+            cpy tmp4
+            bne @l2
+            eor AliensR1s       ; kill aliens with XOR!    ;-)
+            sta AliensR1s
+            jmp @follow
+@l2:        eor AliensR2s       ; Add here for more than two lines of aliens
+            sta AliensR2s
+@follow:    ldx tmp2
+            ldy tmp3
 @bombshot:  lda #EXPLOSION1
             jsr DrawChar
             lda #$00
@@ -645,7 +669,6 @@ DrawBombs:  ldx #0              ; Draw bombs
             rts
 
 ; Decide if a bomb should be dropped or not.
-; AlienCurrX should contain the current alien being processed in the line.
 
 DropBomb:   jsr GetRand
             lda Random          ; Get a random number and check if it is less
@@ -665,7 +688,8 @@ DropBomb:   jsr GetRand
             txa
             asl
             clc
-            adc #$01
+            adc AlienPosX
+            adc #$FF
             sta BombPosX,Y
 @nobomb:    rts
 
@@ -807,6 +831,7 @@ IrqCn:      .byte $00
 tmp1:       .byte $00
 tmp2:       .byte $00
 tmp3:       .byte $00
+tmp4:       .byte $00
 keyin:      .byte $00           ; Last key typed.
 
 Colour:     .byte $00           ; Colour to be used by the printing routines
@@ -821,7 +846,6 @@ AlienCode2: .byte $00           ; Character for alien row 2
 AlienCode3: .byte $00           ; Character for alien row 3
 AlienPosX:  .byte $00           ; Horisontal position of aliens (in pixels)
 AlienPosY:  .byte $00           ; Vertical position of aliens (in pixels)
-AlienCurrX: .byte $00           ; Horisontal position of the alien (bomb drop).
 AlienCurrY: .byte $00           ; Vertical position of alien being drawn
 Direction:  .byte $00           ; The first bit indicates aliens' X direction
 CannonPos:  .byte $8*8          ; Horisontal position of the cannon (in pixels)
