@@ -288,7 +288,9 @@ IrqHandler:
             pha
             tya
             pha
-
+            lda Win         ; If Win !=0 stop the game
+            cmp #$00
+            bne @nochange
             lda IrqCn
             cmp #PERIOD     ; Exercute every PERIOD/60 of second
             bne @cont3
@@ -464,15 +466,15 @@ CannonFire: ldx #0              ; Update the position of the shot
 DrawShots:  ldx #0              ; Draw bombs
             lda #YELLOW         ; Colour of the shots
             sta Colour
-@loop4:     stx tmp1
+loop4:      stx tmp1
             lda FireSpeed,X     ; Do not draw inactive shots
             cmp #0
-            beq @notmove
+            beq notmove
             lda FirePosX,X
             sta tmp2            ; Store the X position of the shot
             lda FirePosOY,X
             cmp FirePosY,X
-            beq @notmove
+            beq notmove
             tay
             lda #EMPTY          ; Erase the previous shot
             ldx tmp2            ; Load the X position
@@ -490,51 +492,54 @@ DrawShots:  ldx #0              ; Draw bombs
             ldx tmp2
             jsr GetChar         ; Check for a collision
             cmp #EMPTY
-            bne @collision
+            bne collision
             lda #SHOT
             jsr DrawChar        ; Draw the shot in the new position
-@notmove:   ldx tmp1
+notmove:    ldx tmp1
             inx
             cpx #NMSHOTS
-            bne @loop4
+            bne loop4
             rts
 
 ; Here we know that a collision has been taken place, so we should see what
 ; element has been encountered by the bullet. A contains the character that
 ; has been found
 
-@collision: cmp #ALIEN1
-            beq @alienshot
+collision:  cmp #ALIEN1
+            beq alienshot
             cmp #ALIEN2
-            beq @alienshot
+            beq alienshot
             cmp #ALIEN3
-            beq @alienshot
+            beq alienshot
             cmp #ALIEN4
-            beq @alienshot
+            beq alienshot
             cmp #BOMB
-            beq @bombshot
+            beq bombshot
             cmp #BLOCK
-            beq @bunkershot
+            beq bunkershot
             cmp #BLOCKR
-            beq @bunkershot
+            beq bunkershot
             cmp #BLOCKL
-            beq @bunkershot
-            jmp @notmove
+            beq bunkershot
+            jsr CheckWin
+            jmp notmove
 
 ; Handle the different collisions.
 ; X and Y contain the position of the collision, also available in tmp2 and
 ; tmp3 respectively
 
-@alienshot: txa
+alienshot:  txa
             sec
             sbc AlienPosX
             lsr
             tax
             lda #$01
+            cpx #$00
+            beq @r1
 @contsh:    asl
             dex
             bne @contsh
-            pha
+@r1:        pha
             lda AlienPosY
             lsr
             lsr
@@ -550,7 +555,7 @@ DrawShots:  ldx #0              ; Draw bombs
             sta AliensR2s
 @follow:    ldx tmp2
             ldy tmp3
-@bombshot:  lda #EXPLOSION1
+bombshot:  lda #EXPLOSION1
             jsr DrawChar
             lda #$00
             ldx tmp1
@@ -567,15 +572,51 @@ DrawShots:  ldx #0              ; Draw bombs
 @searchl:   inx
             cpx #NMBOMBS
             bne @searchb
-            jmp @notmove
+            jmp notmove
 
-@bunkershot:
+bunkershot:
             lda #EXPLOSION1
             jsr DrawChar
             lda #$FF
             ldx tmp1
             sta FireSpeed,X
-            jmp @notmove
+            jmp notmove
+
+; Check if the player won the game.
+
+CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
+            cmp #$00
+            bne @exit
+            lda AliensR2s
+            cmp #$00
+            bne @exit
+            lda #$FF            ; If we come here, all aliens have been shot
+            sta Win             ; That will stop the game
+            ldx #4              ; write "YOU WIN"
+            ldy #15
+            lda #YELLOW
+            sta Colour
+            lda #(121+$80)
+            jsr DrawChar
+            inx
+            lda #(111+$80)
+            jsr DrawChar
+            inx
+            lda #(117+$80)
+            jsr DrawChar
+            inx
+            lda #(32+$80)
+            jsr DrawChar
+            inx
+            lda #(119+$80)
+            jsr DrawChar
+            inx
+            lda #(105+$80)
+            jsr DrawChar
+            inx
+            lda #(110+$80)
+            jsr DrawChar
+@exit:      rts
 
 ; Control bombs dropping. A maximum of 8 bombs can be falling at the same
 ; time. A bomb is active and falling if its speed is greater than 0.
@@ -850,6 +891,7 @@ AlienCurrY: .byte $00           ; Vertical position of alien being drawn
 Direction:  .byte $00           ; The first bit indicates aliens' X direction
 CannonPos:  .byte $8*8          ; Horisontal position of the cannon (in pixels)
 OldCannonP: .byte $00           ; Old position of the cannon
+Win:        .byte $00           ; If !=0 then the level is won
 
 BombSpeed:  .res NMBOMBS, $00   ; Array containing the speed of the bombs sent
 BombPosX:   .res NMBOMBS, $00   ; Array with X positions of bombs
