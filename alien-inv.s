@@ -596,25 +596,25 @@ CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
             ldy #15
             lda #YELLOW
             sta Colour
-            lda #(121+$80)
+            lda #(25+$80)
             jsr DrawChar
             inx
-            lda #(111+$80)
+            lda #(15+$80)
             jsr DrawChar
             inx
-            lda #(117+$80)
+            lda #(21+$80)
             jsr DrawChar
             inx
             lda #(32+$80)
             jsr DrawChar
             inx
-            lda #(119+$80)
+            lda #(23+$80)
             jsr DrawChar
             inx
-            lda #(105+$80)
+            lda #(9+$80)
             jsr DrawChar
             inx
-            lda #(110+$80)
+            lda #(14+$80)
             jsr DrawChar
 @exit:      rts
 
