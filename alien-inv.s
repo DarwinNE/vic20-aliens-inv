@@ -290,7 +290,7 @@ IrqHandler:
             pha
             lda Win         ; If Win !=0 stop the game
             cmp #$00
-            bne @nochange
+            bne @exitirq
             lda IrqCn
             cmp #PERIOD     ; Exercute every PERIOD/60 of second
             bne @cont3
@@ -339,7 +339,7 @@ IrqHandler:
             jsr DrawCannon
 @nochange:  jsr CannonFire  ; Update the position of cannon shots
             inc IrqCn
-            pla             ; Retrieve registers
+@exitirq:   pla             ; Retrieve registers
             tay
             pla
             tax
@@ -668,14 +668,13 @@ FallBombs:  lda AliensR1s
 @loop3:     lda BombSpeed,X     ; Check that the bomb is active (speed>0)
             cmp #0
             beq @cont
-            clc                 ; If speed >0, update current Y position
+            clc                 ; If speed !=0, update current Y position
             adc BombPosY,X
             cmp #31             ; Check if we reached the last line
             bcc @stillf
-            lda #0              ; In this case, destroy the bomb
+            lda #$FF            ; In this case, destroy the bomb
             sta BombSpeed,X
 @stillf:    sta BombPosY,X
-                                ; At this point we should check for collisions!
 @cont:      inx
             cpx #NMBOMBS
             bne @loop3
@@ -697,17 +696,39 @@ DrawBombs:  ldx #0              ; Draw bombs
             ldx tmp2            ; Load the X position
             jsr DrawChar        ; Erase the bomb in the old position
             ldx tmp1
-            lda BombPosY,X
+            lda BombSpeed,X
+            cmp #$FF            ; If the speed is #$FF, do not draw the bomb
+            bne @normal
+            lda #$00
+            sta BombSpeed,X
+@normal:    lda BombPosY,X
             sta BombPosOY,X     ; Save the current position
             tay
-            lda #BOMB
             ldx tmp2
+            jsr GetChar         ; Check for a collision
+            cmp #CANNON
+            beq @BombExpl        ; Explode the bomb
+            cmp #BLOCK
+            beq @BombExpl        ; Explode the bomb
+            cmp #BLOCKR
+            beq @BombExpl        ; Explode the bomb
+            cmp #BLOCKL
+            beq @BombExpl        ; Explode the bomb
+            
+            lda #BOMB
             jsr DrawChar        ; Draw the bomb in the new position
 @notmove:   ldx tmp1
             inx
             cpx #NMBOMBS
             bne @loop4
             rts
+
+@BombExpl:   lda #EXPLOSION1    ; Draw an explosion
+            jsr DrawChar
+            lda #$ff            ; Delete the bomb
+            ldx tmp1
+            sta BombSpeed,X
+            jmp @notmove
 
 ; Decide if a bomb should be dropped or not.
 
