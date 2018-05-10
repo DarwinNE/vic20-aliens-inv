@@ -88,14 +88,15 @@
 ; Main program here.
 
 main:
-            jsr Init
-            lda #34
-            sta AlienPosY   ; Initial position of aliens
-            jsr DrawAliens
-
-@mainloop:  jsr GETIN
+            jsr Init        ; Init the game (load graphic chars, etc...)
+@restart:   jsr StartGame   ; Set the starting values of game variables
+@mainloop:  jsr GETIN       ; Main loop waiting for keyboard events
             beq @mainloop
             sta keyin
+            lda Win
+            cmp #00         ; If the game has stopped, restart
+            bne @restart
+@norestart: lda keyin
             cmp #$58        ; X: increase position of the cannon
             bne @continue1
             lda #$08
@@ -159,18 +160,45 @@ Init:
             lda #$FF        ; Move the character generator address to $1C00
             sta VICCHGEN    ; while leaving ch. 128-255 to their original pos.
             jsr MovCh       ; Load the graphic chars
-            lda #EMPTY
-            jsr CLS
-            lda #BLACK
-            jsr PaintColour
             sei             ; Configure the interrupt handler
             lda #<IrqHandler
             sta $0314
             lda #>IrqHandler
             sta $0315
             cli
-            jsr test1l
+            rts
+
+StartGame:
+            sei
+            lda #34
+            sta AlienPosY   ; Initial position of aliens
+            jsr DrawAliens
+            lda #$FF
+            sta AliensR1s
+            sta AliensR2s
+            sta AliensR3s
+            lda #64
+            sta CannonPos
+            lda #$00
+            sta Win
+            ldx #NMBOMBS
+@loopg:     sta BombSpeed-1,X
+            sta FireSpeed-1,X
+            dex
+            bne @loopg
+            lda #EMPTY      ; Clear the screen
+            jsr CLS
+            lda #BLACK
+            jsr PaintColour
             jsr DrawShield
+            cli
+            rts
+
+; Put zero in the current score
+
+ZeroScore:  lda #$00
+            sta Score
+            sta Score+1
             rts
 
 ; Draw the shields in the following positions:
@@ -226,24 +254,58 @@ DrawShield: ldx #1
             jsr DrawChar
             rts
 
-test1l:
+draw1l:
+            lda Score       ; Load the current score and convert it to BCD
+            sta Val
+            lda Score+1
+            sta Val+1
+            jsr Bin2BCD
             ldx #0
             ldy #0
             lda #WHITE
             sta Colour
-            lda #(49+$80)
+            lda Res+2       ; Print all the BCD chars
+            jsr PrintBCD
+            lda Res+1
+            jsr PrintBCD
+            lda Res
+            jsr PrintBCD
+            lda #(48+$80)
             jsr DrawChar
-            ldx #1
-            lda #(52+$80)
-            jsr DrawChar
-            ldx #2
-            lda #(51+$80)
-            jsr DrawChar
-            ldx #3
-            lda #(52+$80)
+            inx
+            inx
+            lda Score       ; Update the high score if needed
+            cmp HiScore
+            bcc @noupdate
+            lda Score+1
+            cmp HiScore+1
+            bcc @noupdate
+            jsr UpdateHiSc  
+@noupdate:  lda HiScore     ; Load the current hi score and convert it to BCD
+            sta Val
+            lda HiScore+1
+            sta Val+1
+            jsr Bin2BCD
+            ldx #08
+            ldy #00
+            lda #CYAN
+            sta Colour
+            lda Res+2       ; Print all the BCD chars
+            jsr PrintBCD
+            lda Res+1
+            jsr PrintBCD
+            lda Res
+            jsr PrintBCD
+            lda #(48+$80)
             jsr DrawChar
             rts
 
+UpdateHiSc: lda Score       ; Update the high score
+            sta HiScore
+            lda Score+1
+            sta HiScore+1
+            rts
+            
 ; Copy the graphic chars. They are subjected to be changed during the pixel-by
 ; pixel movement, so that routine gives only the initial situation.
 
@@ -293,18 +355,23 @@ IrqHandler:
             pha
             lda Win         ; If Win !=0 stop the game
             cmp #$00
-            bne @exitirq
-            lda IrqCn
+            beq @contirq
+            jmp @exitirq
+@contirq:   lda IrqCn
             cmp #PERIOD     ; Exercute every PERIOD/60 of second
             bne @cont3
             lda #0
             sta IrqCn
+            jsr draw1l
             lda #EMPTY      ; Erase aliens in the current position
             sta AlienCode1
             lda #EMPTY
             sta AlienCode2
             jsr DrawAliens  ; Redraw aliens
             jsr FallBombs   ; Make bombs fall. Aliens will be on top of bombs
+            lda Win         ; If Win !=0 stop the game
+            cmp #$00
+            bne @exitirq
             inc AlienPosY   ; Increment the Y position of the aliens
             lda Direction   ; Increment or decrement the X position,
             and #$01        ; depending on the Direction value
@@ -530,8 +597,24 @@ collision:  cmp #ALIEN1
 ; Handle the different collisions.
 ; X and Y contain the position of the collision, also available in tmp2 and
 ; tmp3 respectively
+bunkershot:
+            lda #EXPLOSION1
+            jsr DrawChar
+            lda #$FF
+            ldx tmp1
+            sta FireSpeed,X
+            jmp notmove
 
-alienshot:  txa
+alienshot:  lda Score
+            clc
+            adc #$01
+            sta Score
+            bcc @contadd
+            lda Score+1
+            clc
+            adc #$01
+            sta Score+1
+@contadd:   txa
             sec
             sbc AlienPosX
             lsr
@@ -577,14 +660,6 @@ bombshot:  lda #EXPLOSION1
             bne @searchb
             jmp notmove
 
-bunkershot:
-            lda #EXPLOSION1
-            jsr DrawChar
-            lda #$FF
-            ldx tmp1
-            sta FireSpeed,X
-            jmp notmove
-
 ; Check if the player won the game.
 
 CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
@@ -621,9 +696,10 @@ CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
             jsr DrawChar
 @exit:      rts
 
-; Check if the player won the game.
+; Game over!
 
-GameOver:   lda #RED
+GameOver:   jsr ZeroScore       ; Put the score to zero
+            lda #RED            ; Put all the screen in red (sooo bloody!)
             sta Colour
             jsr PaintColour
             ldx #2              ; write "GAME OVER"
@@ -918,12 +994,57 @@ GetRand:    lda Random+1
             adc Random+1
             sta Random+1
             pla
-            clc             ; added this instruction - kweepa
+            clc                 ; added this instruction - kweepa
             adc #$11
             sta Random
             lda Random+1
             adc #$36
             sta Random+1
+            rts
+
+; Convert a 16-bit word to a 24-bit BCD. Adapted from here:
+; http://www.obelisk.me.uk/6502/algorithms.html
+; I like how it is compact and the clever use of the BCD mode of the 6502
+
+; Convert an 16 bit binary value into a 24bit BCD value
+Bin2BCD:    lda #0              ;Clear the result area
+            STA Res+0
+            STA Res+1
+            STA Res+2
+            LDX #16             ;Setup the bit counter
+            SED                 ;Enter decimal mode
+@LOOP:      ASL Val+0           ;Shift a bit out of the binary
+            ROL Val+1           ;... value
+            LDA Res+0           ;And add it into the result, doubling
+            ADC Res+0           ;... it at the same time
+            STA Res+0
+            LDA Res+1
+            ADC Res+1
+            STA Res+1
+            LDA Res+2
+            ADC Res+2
+            STA Res+2
+            DEX             ;More bits to process?
+            BNE @LOOP
+            CLD             ;Leave decimal mode
+            rts
+
+; Print the BCD value in A as two ASCII digits
+PrintBCD:   PHA             ;Save the BCD value
+            LSR A           ;Shift the four most significant bits
+            LSR A           ;... into the four least significant
+            LSR A
+            LSR A
+            clc
+            adc #(48+$80)   ;Make an screen code char
+            jsr DrawChar
+            inx
+            PLA             ;Recover the BCD value
+            AND #$0F        ;Mask out all but the bottom 4 bits
+            clc
+            adc #(48+$80)   ;Make an screen code char
+            jsr DrawChar
+            inx
             rts
 
 ; DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA
@@ -942,6 +1063,8 @@ tmp2:       .byte $00
 tmp3:       .byte $00
 tmp4:       .byte $00
 keyin:      .byte $00           ; Last key typed.
+Val:        .word $0000         ; Used for the BCD conversion
+Res:        .res 3, $00         ; the result of the BCD conversion
 
 Colour:     .byte $00           ; Colour to be used by the printing routines
 AliensR1s:  .byte $FF           ; Presence of aliens in row 1
@@ -960,6 +1083,8 @@ Direction:  .byte $00           ; The first bit indicates aliens' X direction
 CannonPos:  .byte $8*8          ; Horisontal position of the cannon (in pixels)
 OldCannonP: .byte $00           ; Old position of the cannon
 Win:        .byte $00           ; If 1, the level is won. If $FF, game over
+Score:      .word $0000         ; Current score (divided by 10)
+HiScore:    .word $0000         ; High Score (divided by 10)
 
 BombSpeed:  .res NMBOMBS, $00   ; Array containing the speed of the bombs sent
 BombPosX:   .res NMBOMBS, $00   ; Array with X positions of bombs
