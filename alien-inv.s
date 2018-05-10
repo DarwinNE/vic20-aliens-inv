@@ -159,7 +159,10 @@ Init:
             lda #$FF        ; Move the character generator address to $1C00
             sta VICCHGEN    ; while leaving ch. 128-255 to their original pos.
             jsr MovCh       ; Load the graphic chars
+            lda #EMPTY
             jsr CLS
+            lda #BLACK
+            jsr PaintColour
             sei             ; Configure the interrupt handler
             lda #<IrqHandler
             sta $0314
@@ -618,6 +621,41 @@ CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
             jsr DrawChar
 @exit:      rts
 
+; Check if the player won the game.
+
+GameOver:   lda #RED
+            sta Colour
+            jsr PaintColour
+            ldx #2              ; write "GAME OVER"
+            ldy #15
+            lda #(7+$80)
+            jsr DrawChar
+            inx
+            lda #(1+$80)
+            jsr DrawChar
+            inx
+            lda #(13+$80)
+            jsr DrawChar
+            inx
+            lda #(5+$80)
+            jsr DrawChar
+            inx
+            lda #(32+$80)
+            jsr DrawChar
+            inx
+            lda #(15+$80)
+            jsr DrawChar
+            inx
+            lda #(22+$80)
+            jsr DrawChar
+            inx
+            lda #(5+$80)
+            jsr DrawChar
+            inx
+            lda #(18+$80)
+            jsr DrawChar
+@exit:      rts
+
 ; Control bombs dropping. A maximum of 8 bombs can be falling at the same
 ; time. A bomb is active and falling if its speed is greater than 0.
 ; BombSpeed, BombPosX and BombPosY are the arrays containing the speed and the
@@ -703,6 +741,7 @@ DrawBombs:  ldx #0              ; Draw bombs
             sta BombSpeed,X
 @normal:    lda BombPosY,X
             sta BombPosOY,X     ; Save the current position
+            sta tmp3
             tay
             ldx tmp2
             jsr GetChar         ; Check for a collision
@@ -714,7 +753,6 @@ DrawBombs:  ldx #0              ; Draw bombs
             beq @BombExpl        ; Explode the bomb
             cmp #BLOCKL
             beq @BombExpl        ; Explode the bomb
-            
             lda #BOMB
             jsr DrawChar        ; Draw the bomb in the new position
 @notmove:   ldx tmp1
@@ -723,7 +761,14 @@ DrawBombs:  ldx #0              ; Draw bombs
             bne @loop4
             rts
 
-@BombExpl:   lda #EXPLOSION1    ; Draw an explosion
+@BombExpl:  cmp #CANNON         ; Check if the cannon has been hit
+            bne @explode
+            lda #$FF
+            sta Win             ; If yes, stop the game
+            jsr GameOver
+            ldx tmp2
+            ldy tmp3
+@explode:   lda #EXPLOSION1    ; Draw an explosion
             jsr DrawChar
             lda #$ff            ; Delete the bomb
             ldx tmp1
@@ -823,34 +868,36 @@ GetChar:    stx Dummy2
             rts
 
 ; Clear the screen. This maybe is too slow to be used in an interrupt handler.
+; Draw everywhere the character contained in the A register. Employs X.
 
 CLS:
             size=16*31/4
             ldx #size
-@loop:      lda #EMPTY
+@loop:      sta MEMSCR,X            ; A (small) degree of loop unrolling avoids
+            sta MEMSCR+size,X       ; to mess with a 16-bit loop.
+            sta MEMSCR+size*2,X
+            sta MEMSCR+size*3,X
+            dex
+            bne @loop
             sta MEMSCR,X            ; A (small) degree of loop unrolling avoids
             sta MEMSCR+size,X       ; to mess with a 16-bit loop.
             sta MEMSCR+size*2,X
             sta MEMSCR+size*3,X
-            lda #BLACK
-            sta MEMCLR,X
+            rts
+
+PaintColour:
+            ldx #size
+@loop:      sta MEMCLR,X
             sta MEMCLR+size,X
             sta MEMCLR+size*2,X
             sta MEMCLR+size*3,X
             dex
             bne @loop
-            lda #EMPTY
-            sta MEMSCR,X            ; A (small) degree of loop unrolling avoids
-            sta MEMSCR+size,X       ; to mess with a 16-bit loop.
-            sta MEMSCR+size*2,X
-            sta MEMSCR+size*3,X
-            lda #BLACK
             sta MEMCLR,X
             sta MEMCLR+size,X
             sta MEMCLR+size*2,X
             sta MEMCLR+size*3,X
             rts
-
 
 ; Random number generation routine. Adapted from here:
 ; http://sleepingelephant.com/ipw-web/bulletin/bb/viewtopic.php?t=2304
@@ -912,7 +959,7 @@ AlienCurrY: .byte $00           ; Vertical position of alien being drawn
 Direction:  .byte $00           ; The first bit indicates aliens' X direction
 CannonPos:  .byte $8*8          ; Horisontal position of the cannon (in pixels)
 OldCannonP: .byte $00           ; Old position of the cannon
-Win:        .byte $00           ; If !=0 then the level is won
+Win:        .byte $00           ; If 1, the level is won. If $FF, game over
 
 BombSpeed:  .res NMBOMBS, $00   ; Array containing the speed of the bombs sent
 BombPosX:   .res NMBOMBS, $00   ; Array with X positions of bombs
