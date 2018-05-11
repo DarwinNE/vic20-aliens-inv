@@ -189,6 +189,7 @@ StartGame:
             lda #$00
             sta Win
             sta IrqCn
+            sta AlienPosX
             ldx #NMBOMBS    ; Clear all bombs
 @loopg:     sta BombSpeed-1,X
             dex
@@ -358,8 +359,7 @@ MovCh:
 ;
 ; IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ
 
-IrqHandler:
-            pha
+IrqHandler: pha
             txa             ; Save registers
             pha
             tya
@@ -388,19 +388,21 @@ IrqHandler:
             and #$01        ; depending on the Direction value
             beq @negative
 @positive:  inc AlienPosX   ; The postion should be increased
+            lda AlienMaxX   ; Check if the direction should be reversed
+            cmp #14
+            bcc @cont
+            lda Direction   ; Invert the direction
+            eor #$FF
+            sta Direction
             jmp @cont
 @negative:  dec AlienPosX   ; The position should be decreased
-@cont:      lda AlienPosX
-            cmp #3
-            bcc @cont1
+            lda AlienMinX   ; Check if the direction should be reversed
+            cmp #2
+            bcs @cont
             lda Direction   ; Invert the direction
             eor #$FF
             sta Direction
-@cont1:     cmp #$FF        ; Check if the position is negative
-            bcs @cont2
-            lda Direction   ; Invert the direction
-            eor #$FF
-            sta Direction
+@cont:
 @cont2:     lda AlienPosY   ; Check if the aliens came to bottom of screen
             cmp #28*8
             bne @draw
@@ -431,8 +433,7 @@ IrqHandler:
 ; Draw the cannon on the screen, at the current position, contained in
 ; CannonPos (in pixels).
 
-DrawCannon:
-            lda CannonPos
+DrawCannon: lda CannonPos
             lsr                 ; The position is in pixel, divide by 8
             lsr                 ; to obtain position in characters
             lsr
@@ -459,13 +460,16 @@ ClearCannon:
             lda #EMPTY          ; Space
             jsr DrawChar
 
-; Draw the aliens on the screen. They are several lines with at most 8 aliens
+; Draw aliens on the screen. They are several lines with at most 8 aliens
 ; each. The presence of an alien in the first row is given by bits in the
 ; AliensR1 byte. An alien is present at the beginning of the game (or level)
 ; and can be destroyed when hit. In this case, the corresponding bit in the
 ; AliensR1 byte is set to 0. Same for AliensR2 and AliensR3.
 
-DrawAliens:
+DrawAliens: lda #$ff
+            sta AlienMinX
+            lda #$00
+            sta AlienMaxX
             lda AliensR1s
             sta AliensR1
             lda AliensR2s
@@ -497,7 +501,6 @@ DrawAliens:
             bcs @drawAlien1
 @ret2:      dex
             bne @loop2
-            inc AlienCurrY
             rts
 
 @drawAlien0:
@@ -508,11 +511,13 @@ DrawAliens:
             clc
             adc AlienPosX
             tax
+            jsr UpdMinMax
             lda AlienCode1
             jsr DrawChar
             pla
             tax
             jmp @ret1
+
 @drawAlien1:
             lda #CYAN
             sta Colour
@@ -521,11 +526,23 @@ DrawAliens:
             clc
             adc AlienPosX
             tax
+            jsr UpdMinMax
             lda AlienCode2
             jsr DrawChar
             pla
             tax
             jmp @ret2
+
+; Update the minimum and maximum value of aliens' positions
+; X contains the current horisontal position
+
+UpdMinMax:  cpx AlienMinX
+            bcs @nomin
+            stx AlienMinX
+@nomin:     cpx AlienMaxX
+            bcc @nomax
+            stx AlienMaxX
+@nomax:     rts
 
 ; Control the movement of the bullet/laser shot fired by the cannon.
 
@@ -544,47 +561,45 @@ CannonFire: ldx #0              ; Update the position of the shot
 @cont:      inx
             cpx #NMSHOTS
             bne @loop
-DrawShots:  ldx #0              ; Draw bombs
+DrawShots:  ldx #0              ; Draw shots
             lda #YELLOW         ; Colour of the shots
             sta Colour
-loop4:      stx tmp1
-            lda FireSpeed,X     ; Do not draw inactive shots
-            cmp #0
-            beq notmove
+loop4:      stx tmpindex
             lda FirePosX,X
-            sta tmp2            ; Store the X position of the shot
+            sta tmpx            ; Store the X position of the shot
             lda FirePosOY,X
             cmp FirePosY,X
             beq notmove
             tay
             lda #EMPTY          ; Erase the previous shot
-            ldx tmp2            ; Load the X position
+            ldx tmpx            ; Load the X position
             jsr DrawChar        ; Erase the shot in the old position
-            ldx tmp1
-            lda FireSpeed,X     ; Check if the shot should be destroyed
+            ldx tmpindex
+            lda FireSpeed,X     ; Do not draw inactive shots
+            cmp #0
+            beq notmove
             cmp #$FF
             bne @normal
             lda #0
             sta FireSpeed,X
 @normal:    lda FirePosY,X
-            sta tmp3
+            sta tmpy
             sta FirePosOY,X     ; Save the current position
             tay
-            ldx tmp2
+            ldx tmpx
             jsr GetChar         ; Check for a collision
             cmp #EMPTY
             bne collision
             lda #SHOT
             jsr DrawChar        ; Draw the shot in the new position
-notmove:    ldx tmp1
+notmove:    ldx tmpindex
             inx
             cpx #NMSHOTS
             bne loop4
             rts
 
-; Here we know that a collision has been taken place, so we should see what
-; element has been encountered by the bullet. A contains the character that
-; has been found
+; Here we know that a collision took place, so we should see what element has
+; been encountered by the bullet. A contains the character that has been found
 
 collision:  cmp #ALIEN1
             beq alienshot
@@ -606,13 +621,13 @@ collision:  cmp #ALIEN1
             jmp notmove
 
 ; Handle the different collisions.
-; X and Y contain the position of the collision, also available in tmp2 and
-; tmp3 respectively
+; X and Y contain the position of the collision, also available in tmpx and
+; tmpy respectively
 bunkershot:
             lda #EXPLOSION1
             jsr DrawChar
             lda #$FF
-            ldx tmp1
+            ldx tmpindex
             sta FireSpeed,X
             jmp notmove
 
@@ -650,19 +665,19 @@ alienshot:  lda Score
             jmp @follow
 @l2:        eor AliensR2s       ; Add here for more than two lines of aliens
             sta AliensR2s
-@follow:    ldx tmp2
-            ldy tmp3
+@follow:    ldx tmpx
+            ldy tmpy
 bombshot:  lda #EXPLOSION1
             jsr DrawChar
             lda #$00
-            ldx tmp1
+            ldx tmpindex
             sta FireSpeed,X
             ldx #$0
 @searchb:   lda BombPosX,X      ; Compare the X position of the bomb
-            cmp tmp2
+            cmp tmpx
             bne @searchl
             lda BombPosY,X      ; Compare the Y positions
-            cmp tmp3
+            cmp tmpy
             bne @searchl
             lda #$0             ; Bomb hit found: destroy it!
             sta BombSpeed,X
@@ -754,7 +769,7 @@ GameOver:   lda #$FF
 ; Control bombs dropping. A maximum of 8 bombs can be falling at the same
 ; time. A bomb is active and falling if its speed is greater than 0.
 ; BombSpeed, BombPosX and BombPosY are the arrays containing the speed and the
-; positions. Exploit tmp1 and tmp2, change registers A, X, Y.
+; positions. Exploit tmpindex and tmpx, change registers A, X, Y.
 ; This routine does three things:
 ;
 ; 1 - For each alien alive, and for each of the 8 bombs available, decide if
@@ -815,30 +830,31 @@ FallBombs:  lda AliensR1s
 DrawBombs:  ldx #0              ; Draw bombs
             lda #MAGENTA        ; Colour of the bombs
             sta Colour
-@loop4:     stx tmp1
+@loop4:     stx tmpindex
             lda BombSpeed,X     ; Do not draw inactive bombs
             cmp #0
             beq @notmove
             lda BombPosX,X
-            sta tmp2            ; Store the X position of the bomb
+            sta tmpx            ; Store the X position of the bomb
             lda BombPosOY,X
             cmp BombPosY,X
             beq @notmove
             tay
             lda #EMPTY          ; Erase the previous bomb
-            ldx tmp2            ; Load the X position
+            ldx tmpx            ; Load the X position
             jsr DrawChar        ; Erase the bomb in the old position
-            ldx tmp1
+            ldx tmpindex
             lda BombSpeed,X
             cmp #$FF            ; If the speed is #$FF, do not draw the bomb
             bne @normal
             lda #$00
             sta BombSpeed,X
+            jmp @notmove
 @normal:    lda BombPosY,X
             sta BombPosOY,X     ; Save the current position
-            sta tmp3
+            sta tmpy
             tay
-            ldx tmp2
+            ldx tmpx
             jsr GetChar         ; Check for a collision
             cmp #CANNON
             beq @BombExpl        ; Explode the bomb
@@ -850,7 +866,7 @@ DrawBombs:  ldx #0              ; Draw bombs
             beq @BombExpl        ; Explode the bomb
             lda #BOMB
             jsr DrawChar        ; Draw the bomb in the new position
-@notmove:   ldx tmp1
+@notmove:   ldx tmpindex
             inx
             cpx #NMBOMBS
             bne @loop4
@@ -859,12 +875,12 @@ DrawBombs:  ldx #0              ; Draw bombs
 @BombExpl:  cmp #CANNON         ; Check if the cannon has been hit
             bne @explode
             jsr GameOver        ; If yes... player has lost!
-            ldx tmp2
-            ldy tmp3
+            ldx tmpx
+            ldy tmpy
 @explode:   lda #EXPLOSION1     ; Draw an explosion
             jsr DrawChar
-            lda #$ff            ; Delete the bomb
-            ldx tmp1
+            lda #$FF            ; Delete the bomb
+            ldx tmpindex
             sta BombSpeed,X
             jmp @notmove
 
@@ -995,19 +1011,19 @@ PaintColour:
 ; Random number generation routine. Adapted from here:
 ; http://sleepingelephant.com/ipw-web/bulletin/bb/viewtopic.php?t=2304
 ; Creates a pseudo-random number in Random and Random+1
-; Change register A and employs tmp1
+; Change register A and employs tmpindex
 
 GetRand:    lda Random+1
-            sta tmp1
+            sta tmpindex
             lda Random
             asl
-            rol tmp1
+            rol tmpindex
             asl
-            rol tmp1
+            rol tmpindex
             clc
             adc Random
             pha
-            lda tmp1
+            lda tmpindex
             adc Random+1
             sta Random+1
             pla
@@ -1030,7 +1046,7 @@ Bin2BCD:    lda #0          ; Clear the result area
             sta Res+2
             ldx #16         ; Setup the bit counter
             sed             ; Enter decimal mode
-@LOOP:      asl Val+0       ; Shift a bit out of the binary
+@loop:      asl Val+0       ; Shift a bit out of the binary
             rol Val+1       ; ... value
             lda Res+0       ; And add it into the result, doubling
             adc Res+0       ; ... it at the same time
@@ -1042,7 +1058,7 @@ Bin2BCD:    lda #0          ; Clear the result area
             adc Res+2
             sta Res+2
             dex             ; More bits to process?
-            bne @LOOP
+            bne @loop
             cld             ; Leave decimal mode
             rts
 
@@ -1075,9 +1091,9 @@ Dummy1:     .byte $00           ; Employed in DrawChar
 Dummy2:     .byte $00
 Dummy3:     .byte $00
 IrqCn:      .byte $00
-tmp1:       .byte $00
-tmp2:       .byte $00
-tmp3:       .byte $00
+tmpindex:       .byte $00
+tmpx:       .byte $00
+tmpy:       .byte $00
 tmp4:       .byte $00
 keyin:      .byte $00           ; Last key typed.
 Val:        .word $0000         ; Used for the BCD conversion
@@ -1096,6 +1112,8 @@ AlienCode1: .byte $00           ; Character for alien row 1
 AlienCode2: .byte $00           ; Character for alien row 2
 AlienCode3: .byte $00           ; Character for alien row 3
 AlienPosX:  .byte $00           ; Horisontal position of aliens (in pixels)
+AlienMaxX:  .byte $00
+AlienMinX:  .byte $00
 AlienPosY:  .byte $00           ; Vertical position of aliens (in pixels)
 AlienCurrY: .byte $00           ; Vertical position of alien being drawn
 Direction:  .byte $00           ; The first bit indicates aliens' X direction
@@ -1164,8 +1182,8 @@ DefChars:
             .byte %00111000
             .byte %00111000
             .byte %01111100
-            .byte %11101110
-            .byte %11000110
+            .byte %11111110
+            .byte %11111110
 
             EMPTY = 5
             .byte %00000000     ; Blank char, ch. 5 (E)
