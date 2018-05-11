@@ -36,7 +36,7 @@
 
 ; Difficulty-related constants
         BOMBPROB = $F0      ; Higher = less bombs falling
-        PERIOD = 20         ; Higher = slower alien movement
+        PERIODS = 20        ; Initial difficulty (less=faster)
 
 ; General constants
         NMBOMBS = 8         ; Maximum number of bombs falling at the same time
@@ -125,7 +125,7 @@ main:
             cmp #0
             beq @found
             inx
-            cmp NMSHOTS
+            cpx NMSHOTS
             bne @search
             jmp @continue3  ; No enough shots allowed in parallel. Abort fire.
 @found:     lda CannonPos
@@ -168,26 +168,35 @@ Init:
             lda #>IrqHandler
             sta $0315
             cli
+            lda #PERIODS
+            sta Period
             rts
 
 StartGame:
             sei
             lda #34
             sta AlienPosY   ; Initial position of aliens
+            sta AlienCurrY
             jsr DrawAliens
             lda #$FF
             sta AliensR1s
             sta AliensR2s
             sta AliensR3s
             lda #64
-            sta CannonPos
+            sta CannonPos   ; Initial position of the cannon
+            lda #$FF
+            sta OldCannonP
             lda #$00
             sta Win
-            ldx #NMBOMBS
+            sta IrqCn
+            ldx #NMBOMBS    ; Clear all bombs
 @loopg:     sta BombSpeed-1,X
-            sta FireSpeed-1,X
             dex
             bne @loopg
+            ldx #NMSHOTS    ; Clear all shoots
+@loopp:     sta FireSpeed-1,X
+            dex
+            bne @loopp
             lda #EMPTY      ; Clear the screen
             jsr CLS
             lda #BLACK
@@ -360,7 +369,7 @@ IrqHandler:
             beq @contirq
             jmp @exitirq
 @contirq:   lda IrqCn
-            cmp #PERIOD     ; Exercute every PERIOD/60 of second
+            cmp Period      ; Exercute every PERIOD/60 of second
             bne @cont3
             lda #0
             sta IrqCn
@@ -409,15 +418,14 @@ IrqHandler:
             jsr ClearCannon
             lda CannonPos   ; Update the OldCannonP value to the current pos.
             sta OldCannonP
-            jsr DrawCannon
-@nochange:  jsr CannonFire  ; Update the position of cannon shots
+@nochange:  jsr DrawCannon
+            jsr CannonFire  ; Update the position of cannon shots
             inc IrqCn
 @exitirq:   pla             ; Retrieve registers
             tay
             pla
             tax
             pla
-
             jmp $EABF       ; Jump to the standard IRQ handling routine
 
 ; Draw the cannon on the screen, at the current position, contained in
@@ -697,6 +705,10 @@ CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
             inx
             lda #(14+$80)       ; N
             jsr DrawChar
+            lda Period          ; Decrease Period (increase alien speed)
+            sec
+            sbc #$02
+            sta Period
 @exit:      rts
 
 ; Game over! Zero the score, turn the screen to red and write "GAME OVER"
@@ -735,6 +747,8 @@ GameOver:   lda #$FF
             inx
             lda #(18+$80)       ; R
             jsr DrawChar
+            lda #PERIODS
+            sta Period
 @exit:      rts
 
 ; Control bombs dropping. A maximum of 8 bombs can be falling at the same
@@ -1068,6 +1082,8 @@ tmp4:       .byte $00
 keyin:      .byte $00           ; Last key typed.
 Val:        .word $0000         ; Used for the BCD conversion
 Res:        .res 3, $00         ; the result of the BCD conversion
+
+Period:     .byte 20            ; Higher = slower alien movement
 
 Colour:     .byte $00           ; Colour to be used by the printing routines
 AliensR1s:  .byte $FF           ; Presence of aliens in row 1
