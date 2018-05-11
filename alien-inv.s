@@ -93,8 +93,10 @@ main:
 @mainloop:  jsr GETIN       ; Main loop waiting for keyboard events
             beq @mainloop
             sta keyin
+            cmp #$0D        ; Wait for return if the game stopped
+            bne @norestart
             lda Win
-            cmp #00         ; If the game has stopped, restart
+            cmp #$00        ; If the game has stopped, restart
             bne @restart
 @norestart: lda keyin
             cmp #$58        ; X: increase position of the cannon
@@ -393,8 +395,9 @@ IrqHandler:
 @cont2:     lda AlienPosY   ; Check if the aliens came to bottom of screen
             cmp #28*8
             bne @draw
-            lda #2          ; Reset the position of aliens (placeholder)
-            sta AlienPosY
+            jsr GameOver
+            ;lda #2          ; Reset the position of aliens (placeholder)
+            ;sta AlienPosY
 @draw:      lda #ALIEN1
             sta AlienCode1
             lda #ALIEN2
@@ -670,65 +673,67 @@ CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
             bne @exit
             lda #$FF            ; If we come here, all aliens have been shot
             sta Win             ; That will stop the game
-            ldx #4              ; write "YOU WIN"
+            ldx #4              ; write "YOU WON"
             ldy #15
             lda #YELLOW
             sta Colour
-            lda #(25+$80)
+            lda #(25+$80)       ; Y
             jsr DrawChar
             inx
-            lda #(15+$80)
+            lda #(15+$80)       ; O
             jsr DrawChar
             inx
-            lda #(21+$80)
+            lda #(21+$80)       ; U
             jsr DrawChar
             inx
-            lda #(32+$80)
+            lda #(32+$80)       ;
             jsr DrawChar
             inx
-            lda #(23+$80)
+            lda #(23+$80)       ; W
             jsr DrawChar
             inx
-            lda #(9+$80)
+            lda #(15+$80)       ; O
             jsr DrawChar
             inx
-            lda #(14+$80)
+            lda #(14+$80)       ; N
             jsr DrawChar
 @exit:      rts
 
-; Game over!
+; Game over! Zero the score, turn the screen to red and write "GAME OVER"
 
-GameOver:   jsr ZeroScore       ; Put the score to zero
+GameOver:   lda #$FF
+            sta Win             ; Stop the game
+            jsr ZeroScore       ; Put the score to zero
             lda #RED            ; Put all the screen in red (sooo bloody!)
             sta Colour
             jsr PaintColour
             ldx #2              ; write "GAME OVER"
             ldy #15
-            lda #(7+$80)
+            lda #(7+$80)        ; G
             jsr DrawChar
             inx
-            lda #(1+$80)
+            lda #(1+$80)        ; A
             jsr DrawChar
             inx
-            lda #(13+$80)
+            lda #(13+$80)       ; M
             jsr DrawChar
             inx
-            lda #(5+$80)
+            lda #(5+$80)        ; E
             jsr DrawChar
             inx
-            lda #(32+$80)
+            lda #(32+$80)       ;
             jsr DrawChar
             inx
-            lda #(15+$80)
+            lda #(15+$80)       ; O
             jsr DrawChar
             inx
-            lda #(22+$80)
+            lda #(22+$80)       ; V
             jsr DrawChar
             inx
-            lda #(5+$80)
+            lda #(5+$80)        ; E
             jsr DrawChar
             inx
-            lda #(18+$80)
+            lda #(18+$80)       ; R
             jsr DrawChar
 @exit:      rts
 
@@ -839,12 +844,10 @@ DrawBombs:  ldx #0              ; Draw bombs
 
 @BombExpl:  cmp #CANNON         ; Check if the cannon has been hit
             bne @explode
-            lda #$FF
-            sta Win             ; If yes, stop the game
-            jsr GameOver
+            jsr GameOver        ; If yes... player has lost!
             ldx tmp2
             ldy tmp3
-@explode:   lda #EXPLOSION1    ; Draw an explosion
+@explode:   lda #EXPLOSION1     ; Draw an explosion
             jsr DrawChar
             lda #$ff            ; Delete the bomb
             ldx tmp1
@@ -994,7 +997,7 @@ GetRand:    lda Random+1
             adc Random+1
             sta Random+1
             pla
-            clc                 ; added this instruction - kweepa
+            clc             ; added this instruction - kweepa
             adc #$11
             sta Random
             lda Random+1
@@ -1007,42 +1010,42 @@ GetRand:    lda Random+1
 ; I like how it is compact and the clever use of the BCD mode of the 6502
 
 ; Convert an 16 bit binary value into a 24bit BCD value
-Bin2BCD:    lda #0              ;Clear the result area
-            STA Res+0
-            STA Res+1
-            STA Res+2
-            LDX #16             ;Setup the bit counter
-            SED                 ;Enter decimal mode
-@LOOP:      ASL Val+0           ;Shift a bit out of the binary
-            ROL Val+1           ;... value
-            LDA Res+0           ;And add it into the result, doubling
-            ADC Res+0           ;... it at the same time
-            STA Res+0
-            LDA Res+1
-            ADC Res+1
-            STA Res+1
-            LDA Res+2
-            ADC Res+2
-            STA Res+2
-            DEX             ;More bits to process?
-            BNE @LOOP
-            CLD             ;Leave decimal mode
+Bin2BCD:    lda #0          ; Clear the result area
+            sta Res+0
+            sta Res+1
+            sta Res+2
+            ldx #16         ; Setup the bit counter
+            sed             ; Enter decimal mode
+@LOOP:      asl Val+0       ; Shift a bit out of the binary
+            rol Val+1       ; ... value
+            lda Res+0       ; And add it into the result, doubling
+            adc Res+0       ; ... it at the same time
+            sta Res+0
+            lda Res+1
+            adc Res+1
+            sta Res+1
+            lda Res+2
+            adc Res+2
+            sta Res+2
+            dex             ; More bits to process?
+            bne @LOOP
+            cld             ; Leave decimal mode
             rts
 
 ; Print the BCD value in A as two ASCII digits
-PrintBCD:   PHA             ;Save the BCD value
-            LSR A           ;Shift the four most significant bits
-            LSR A           ;... into the four least significant
-            LSR A
-            LSR A
+PrintBCD:   pha             ; Save the BCD value
+            lsr A           ; Shift the four most significant bits
+            lsr A           ; ... into the four least significant
+            lsr A
+            lsr A
             clc
-            adc #(48+$80)   ;Make an screen code char
+            adc #(48+$80)   ; Make an screen code char
             jsr DrawChar
             inx
-            PLA             ;Recover the BCD value
-            AND #$0F        ;Mask out all but the bottom 4 bits
+            pla             ; Recover the BCD value
+            and #$0F        ; Mask out all but the bottom 4 bits
             clc
-            adc #(48+$80)   ;Make an screen code char
+            adc #(48+$80)   ; Make an screen code char
             jsr DrawChar
             inx
             rts
