@@ -376,8 +376,8 @@ IrqHandler: pha
             jsr draw1l
             lda #EMPTY      ; Erase aliens in the current position
             sta AlienCode1
-            lda #EMPTY
             sta AlienCode2
+            sta AlienCode3
             jsr DrawAliens  ; Redraw aliens
             jsr FallBombs   ; Make bombs fall. Aliens will be on top of bombs
             lda Win         ; If Win !=0 stop the game
@@ -413,6 +413,8 @@ IrqHandler: pha
             sta AlienCode1
             lda #ALIEN2
             sta AlienCode2
+            lda #ALIEN3
+            sta AlienCode3
             jsr DrawAliens
 @cont3:     lda CannonPos   ; Check if the cannon position has changed
             cmp OldCannonP
@@ -474,6 +476,8 @@ DrawAliens: lda #$ff
             sta AliensR1
             lda AliensR2s
             sta AliensR2
+            lda AliensR3s
+            sta AliensR3
             ldx #8*2
             lda AlienPosY      ; The position is in pixel, divide by 8
             lsr                ; to obtain position in characters
@@ -501,6 +505,18 @@ DrawAliens: lda #$ff
             bcs @drawAlien1
 @ret2:      dex
             bne @loop2
+            inc AlienCurrY
+            inc AlienCurrY
+            ldx #8*2
+@loop3:     dex
+            ldy AlienCurrY
+            lda AliensR3
+            clc
+            rol
+            sta AliensR3
+            bcs @drawAlien2
+@ret3:      dex
+            bne @loop3
             rts
 
 @drawAlien0:
@@ -532,6 +548,21 @@ DrawAliens: lda #$ff
             pla
             tax
             jmp @ret2
+
+@drawAlien2:
+            lda #GREEN
+            sta Colour
+            txa
+            pha
+            clc
+            adc AlienPosX
+            tax
+            jsr UpdMinMax
+            lda AlienCode3
+            jsr DrawChar
+            pla
+            tax
+            jmp @ret3
 
 ; Update the minimum and maximum value of aliens' positions
 ; X contains the current horisontal position
@@ -609,8 +640,8 @@ collision:  cmp #ALIEN1
             beq alienshot
             cmp #ALIEN4
             beq alienshot
-            cmp #BOMB
-            beq bombshot
+            ;cmp #BOMB
+            ;beq bombshot
             cmp #BLOCK
             beq bunkershot
             cmp #BLOCKR
@@ -651,7 +682,7 @@ alienshot:  lda Score
 @contsh:    asl
             dex
             bne @contsh
-@r1:        pha
+@r1:        pha                 ; A contains the code to XOR to the aliens line
             lda AlienPosY
             lsr
             lsr
@@ -663,27 +694,34 @@ alienshot:  lda Score
             eor AliensR1s       ; kill aliens with XOR!    ;-)
             sta AliensR1s
             jmp @follow
-@l2:        eor AliensR2s       ; Add here for more than two lines of aliens
+@l2:        inc tmp4
+            inc tmp4
+            cpy tmp4
+            bne @l3
+            eor AliensR2s       ; Add here for more than three lines of aliens
             sta AliensR2s
+            jmp @follow
+@l3:        eor AliensR3s       ; Add here for more than three lines of aliens
+            sta AliensR3s
 @follow:    ldx tmpx
             ldy tmpy
-bombshot:  lda #EXPLOSION1
+bombshot:   lda #EXPLOSION1
             jsr DrawChar
             lda #$00
             ldx tmpindex
             sta FireSpeed,X
-            ldx #$0
-@searchb:   lda BombPosX,X      ; Compare the X position of the bomb
-            cmp tmpx
-            bne @searchl
-            lda BombPosY,X      ; Compare the Y positions
-            cmp tmpy
-            bne @searchl
-            lda #$0             ; Bomb hit found: destroy it!
-            sta BombSpeed,X
-@searchl:   inx
-            cpx #NMBOMBS
-            bne @searchb
+;             ldx #$0             ; If shots destroy bomb, game is too easy
+; @searchb:   lda BombPosX,X      ; Compare the X position of the bomb
+;             cmp tmpx
+;             bne @searchl
+;             lda BombPosY,X      ; Compare the Y positions
+;             cmp tmpy
+;             bne @searchl
+;             lda #$0             ; Bomb hit found: destroy it!
+;             sta BombSpeed,X
+; @searchl:   inx
+;             cpx #NMBOMBS
+;             bne @searchb
             jmp notmove
 
 ; Check if the player won the game.
