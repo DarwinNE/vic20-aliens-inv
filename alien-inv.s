@@ -732,6 +732,9 @@ CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
             lda AliensR2s
             cmp #$00
             bne @exit
+            lda AliensR3s
+            cmp #$00
+            bne @exit
             lda #$FF            ; If we come here, all aliens have been shot
             sta Win             ; That will stop the game
             ldx #4              ; write "YOU WON"
