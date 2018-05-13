@@ -83,8 +83,8 @@
         REPEATKE = $028A    ; Repeat all keys
 
 
-        VOICE1  = GEN2
-        VOICE2  = GEN1
+        VOICE1  = GEN1
+        VOICE2  = GEN2
         EFFECTS = GEN3
 
 .export main
@@ -947,15 +947,19 @@ DropBomb:   jsr GetRand
             sta BombPosX,Y
 @nobomb:    rts
 
-; Music driver. It should be called every IRQ to handle music
+; Music driver for voice 1. It should be called every IRQ to handle music
 
 Music1:     ldy Voice1ctr
             beq @playnext
-            dey 
+            cpy Voice1nod
+            bne @dec
+            lda #$00
+            sta VOICE1
+@dec:       dey 
             sty Voice1ctr
             rts
 
-@playnext:   ldx Voice1ptr
+@playnext:  ldx Voice1ptr
             lda Voice1data,x
             cmp #repeatm
             beq @repeat
@@ -969,11 +973,11 @@ Music1:     ldy Voice1ctr
             cmp #duracode
             beq @duration
 
-@exitmusic:  inx
+@exitmusic: inx
             stx Voice1ptr
             rts
 
-@loopmusic:  lda Voice1data,x
+@loopmusic: lda Voice1data,x
             and #unmask
             sta Loop1ctr
             inx
@@ -981,7 +985,7 @@ Music1:     ldy Voice1ctr
             stx Loop1str
             jmp @playnext
 
-@endmloop:   ldy Loop1ctr
+@endmloop:  ldy Loop1ctr
             dey
             sty Loop1ctr
             beq @exitloop
@@ -992,7 +996,7 @@ Music1:     ldy Voice1ctr
             stx Voice1ptr
             jmp @playnext
 
-@note:       lda Voice1data,x
+@note:      lda Voice1data,x
             and #unmask
             clc
             adc #128+32
@@ -1001,25 +1005,32 @@ Music1:     ldy Voice1ctr
             sta Voice1ctr
             jmp @exitmusic
 
-@duration:   lda Voice1data,x
+@duration:  lda Voice1data,x
             and #unmask
             sta Voice1drt
+            inx
+            lda Voice1data,x
+            sta Voice1nod
             inx
             stx Voice1ptr
             jmp @playnext
 
-@repeat:     ldx #$FF            ; That will overflow to 0 at the next inx
+@repeat:    ldx #$FF            ; That will overflow to 0 at the next inx
             jmp @exitmusic
 
 ; Music driver for the second voice. Very similar to voice 1.
 
 Music2:     ldy Voice2ctr
             beq @playnext
-            dey 
+            cpy Voice2nod
+            bne @dec
+            lda #$00
+            sta VOICE2
+@dec:       dey 
             sty Voice2ctr
             rts
 
-@playnext:   ldx Voice2ptr
+@playnext:  ldx Voice2ptr
             lda Voice2data,x
             cmp #repeatm
             beq @repeat
@@ -1033,11 +1044,11 @@ Music2:     ldy Voice2ctr
             cmp #duracode
             beq @duration
 
-@exitmusic:  inx
+@exitmusic: inx
             stx Voice2ptr
             rts
 
-@loopmusic:  lda Voice2data,x
+@loopmusic: lda Voice2data,x
             and #unmask
             sta Loop2ctr
             inx
@@ -1045,7 +1056,7 @@ Music2:     ldy Voice2ctr
             stx Loop2str
             jmp @playnext
 
-@endmloop:   ldy Loop2ctr
+@endmloop:  ldy Loop2ctr
             dey
             sty Loop2ctr
             beq @exitloop
@@ -1056,7 +1067,7 @@ Music2:     ldy Voice2ctr
             stx Voice2ptr
             jmp @playnext
 
-@note:       lda Voice2data,x
+@note:      lda Voice2data,x
             and #unmask
             clc
             adc #128+32
@@ -1065,14 +1076,17 @@ Music2:     ldy Voice2ctr
             sta Voice2ctr
             jmp @exitmusic
 
-@duration:   lda Voice2data,x
+@duration:  lda Voice2data,x
             and #unmask
             sta Voice2drt
+            inx
+            lda Voice2data,x
+            sta Voice2nod
             inx
             stx Voice2ptr
             jmp @playnext
 
-@repeat:     ldx #$FF            ; That will overflow to 0 at the next inx
+@repeat:    ldx #$FF            ; That will overflow to 0 at the next inx
             jmp @exitmusic
 
 
@@ -1290,6 +1304,7 @@ FirePosY:   .res NMSHOTS, $00   ; Array with Y positions of bullet
 FirePosOY:  .res NMSHOTS, $00   ; Array with old Y positions of bullet
 
 ; Music data. Much is loop-based, to reduce mem occupation. 
+; IMPROVE DESC!
 ; The code for a loop is as follows:
 ; 1 byte: 10xx xxxx where the xxx xxx represent the number of times the loop
 ;                   should be repeated
@@ -1300,6 +1315,8 @@ FirePosOY:  .res NMSHOTS, $00   ; Array with old Y positions of bullet
 ; Special codes for note durations:
 ;         00 ss ssss specify that the following notes should have the given
 ;            duration in 1/60's of seconds
+;         it should be followed by a byte giving the duration of the silence in
+;         the note
 loopcode = %10000000
 notecode = %01000000
 silence  = %01111111
@@ -1314,14 +1331,16 @@ Voice1ctr:  .byte $00
 Loop1ctr:   .byte $00
 Loop1str:   .byte $00
 Voice1drt:  .byte $00
+Voice1nod:  .byte $00
 
 Voice2ptr:  .byte $00
 Voice2ctr:  .byte $00
 Loop2ctr:   .byte $00
 Loop2str:   .byte $00
 Voice2drt:  .byte $00
+Voice2nod:  .byte $00
 
-Voice1data: .byte duracode + 30
+Voice1data: .byte duracode + 30, 15
             .byte loopcode + 2
             ; a simple diatonic scale
             .byte notecode + 0, notecode + 2, notecode + 4, notecode + 5
@@ -1336,7 +1355,7 @@ Voice1data: .byte duracode + 30
             
             .byte repeatm
 
-Voice2data: .byte duracode + 15
+Voice2data: .byte duracode + 15, 10
             .byte loopcode + 8
             ; a simple diatonic scale
             .byte notecode + 40, silence
