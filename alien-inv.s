@@ -521,60 +521,47 @@ DrawAliens: lda #$ff
             rts
 
 @drawAlien0:
-            lda #RED
-            sta Colour
-            txa
-            pha
-            clc
-            adc AlienPosX
-            tax
-            jsr UpdMinMax
             lda AlienCode1
-            jsr DrawChar
-            pla
-            tax
+            sta Dummy1
+            lda #RED
+            jsr DrawAlienG
             jmp @ret1
 
 @drawAlien1:
-            lda #CYAN
-            sta Colour
-            txa
-            pha
-            clc
-            adc AlienPosX
-            tax
-            jsr UpdMinMax
             lda AlienCode2
-            jsr DrawChar
-            pla
-            tax
+            sta Dummy1
+            lda #CYAN
+            jsr DrawAlienG
             jmp @ret2
 
 @drawAlien2:
+            lda AlienCode3
+            sta Dummy1
             lda #GREEN
-            sta Colour
+            jsr DrawAlienG
+            jmp @ret3
+
+; Draw a generic alien routine and update the min/max X positions variables.
+; A should contain the colour to be used for the aliens.
+; X and Y contain the position in the screen.
+; In Dummy1, the alien character code should be written.
+
+DrawAlienG: sta Colour
+            stx tmp4
             txa
-            pha
             clc
             adc AlienPosX
             tax
-            jsr UpdMinMax
-            lda AlienCode3
-            jsr DrawChar
-            pla
-            tax
-            jmp @ret3
-
-; Update the minimum and maximum value of aliens' positions
-; X contains the current horisontal position
-
-UpdMinMax:  cpx AlienMinX
+            cpx AlienMinX   ; Update the minimum and maximum value of positions
             bcs @nomin
             stx AlienMinX
 @nomin:     cpx AlienMaxX
             bcc @nomax
             stx AlienMaxX
-@nomax:     rts
+@nomax:     lda Dummy1
+            jsr DrawChar
+            ldx tmp4
+            rts
 
 ; Control the movement of the bullet/laser shot fired by the cannon.
 
@@ -652,8 +639,7 @@ collision:  cmp #ALIEN1
 ; Handle the different collisions.
 ; X and Y contain the position of the collision, also available in tmpx and
 ; tmpy respectively
-bunkershot:
-            lda #EXPLOSION1
+bunkershot: lda #EXPLOSION1
             jsr DrawChar
             lda #$FF
             ldx tmpindex
@@ -696,7 +682,7 @@ alienshot:  lda Score
             inc tmp4
             cpy tmp4
             bne @l3
-            eor AliensR2s       ; Add here for more than three lines of aliens
+            eor AliensR2s
             sta AliensR2s
             jmp @follow
 @l3:        eor AliensR3s       ; Add here for more than three lines of aliens
@@ -946,12 +932,11 @@ DropBomb:   jsr GetRand
 DrawChar:   sta Dummy1
             stx Dummy2
             sty Dummy3
-            txa
-            cmp #16         ; Check if the X value is out of range
+            cpx #16         ; Check if the X value is out of range
             bcs @exit       ; Exit if X greater than 16 (no of columns)
-            tya
-            cmp #31         ; Check if the Y value is out of range
+            cpy #31         ; Check if the Y value is out of range
             bcs @exit       ; Exit if Y greater than 31 (no of rows)
+            tya
             asl             ; 16 columns per line. Multiply!
             asl
             asl
@@ -960,20 +945,18 @@ DrawChar:   sta Dummy1
             clc
             adc Dummy2
             tay
-            lda Dummy1
-            sta MEMSCR+256,Y
             lda Colour
             sta MEMCLR+256,Y
+            lda Dummy1
+            sta MEMSCR+256,Y
             jmp @exit
 @tophalf:   adc Dummy2
             tay
-            lda Dummy1
-            sta MEMSCR,Y
             lda Colour
             sta MEMCLR,Y
-@exit:      lda Dummy1
-            ldx Dummy2
-            ldy Dummy3
+            lda Dummy1
+            sta MEMSCR,Y
+@exit:      ldy Dummy3
             rts
 
 ; Get the screen code of the character in the X and Y locations.
@@ -981,12 +964,11 @@ DrawChar:   sta Dummy1
 
 GetChar:    stx Dummy2
             sty Dummy3
-            txa
-            cmp #16         ; Check if the X value is out of range
+            cpx #16         ; Check if the X value is out of range
             bcs @exit       ; Exit if X greater than 16 (no of columns)
-            tya
-            cmp #31         ; Check if the Y value is out of range
+            cpy #31         ; Check if the Y value is out of range
             bcs @exit       ; Exit if Y greater than 31 (no of rows)
+            tya
             asl             ; 16 columns per line. Multiply!
             asl
             asl
@@ -1000,8 +982,7 @@ GetChar:    stx Dummy2
 @tophalf:   adc Dummy2
             tay
             lda MEMSCR,Y
-@exit:      ldx Dummy2
-            ldy Dummy3
+@exit:      ldy Dummy3
             rts
 
 ; Clear the screen. This maybe is too slow to be used in an interrupt handler.
@@ -1113,7 +1094,7 @@ Dummy1:     .byte $00           ; Employed in DrawChar
 Dummy2:     .byte $00
 Dummy3:     .byte $00
 IrqCn:      .byte $00
-tmpindex:       .byte $00
+tmpindex:   .byte $00
 tmpx:       .byte $00
 tmpy:       .byte $00
 tmp4:       .byte $00
