@@ -123,12 +123,12 @@ main:
 @continue3: jmp @mainloop
 
 
-CannonShoot: 
+CannonShoot:
             ldx #0          ; Search for the first free shot
 @search:    lda FireSpeed,X ; (i.e. whose speed = 0)
             beq @found
             inx
-            cpx NMSHOTS
+            cpx #NMSHOTS
             bne @search
             rts             ; No enough shots allowed in parallel. Abort fire.
 @found:     lda CannonPos
@@ -244,7 +244,6 @@ DrawShield: ldx #1
             jsr DrawChar
             inx
             jsr DrawChar
-
             ldx #1
             ldy #28
             lda #BLOCKL
@@ -323,7 +322,7 @@ UpdateHiSc: lda Score       ; Update the high score
             lda Score+1
             sta HiScore+1
             rts
-            
+
 ; Copy the graphic chars. They are subjected to be changed during the pixel-by
 ; pixel movement, so that routine gives only the initial situation.
 
@@ -426,7 +425,7 @@ IrqHandler: pha
 @nochange:  jsr DrawCannon
             jsr MoveShoots  ; Update the position of cannon shots
             inc IrqCn
-@exitirq:   pla             ; Retrieve registers
+@exitirq:   pla             ; Restore registers
             tay
             pla
             tax
