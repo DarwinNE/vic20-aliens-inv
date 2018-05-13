@@ -60,7 +60,6 @@
         GREEN    = $05
         BLUE     = $06
         YELLOW   = $07
-        
 
 ; KERNAL routines used
         GETIN = $FFE4
@@ -120,24 +119,28 @@ main:
 @continue2: lda keyin
             cmp #$20        ; Space: fire!
             bne @continue3
+            jsr CannonShoot
+@continue3: jmp @mainloop
+
+
+CannonShoot: 
             ldx #0          ; Search for the first free shot
 @search:    lda FireSpeed,X ; (i.e. whose speed = 0)
-            cmp #0
             beq @found
             inx
             cpx NMSHOTS
             bne @search
-            jmp @continue3  ; No enough shots allowed in parallel. Abort fire.
+            rts             ; No enough shots allowed in parallel. Abort fire.
 @found:     lda CannonPos
             lsr
             lsr
             lsr
-            sta FirePosX,X
-            lda #30
+            sta FirePosX,X  ; Put the actual cannon position in the X coord.
+            lda #30         ; Shoot from the last line
             sta FirePosY,X
             lda #1
             sta FireSpeed,X
-@continue3: jmp @mainloop
+            rts
 
 ; INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT
 ;
@@ -192,6 +195,9 @@ StartGame:
             sta AlienPosX
             ldx #NMBOMBS    ; Clear all bombs
 @loopg:     sta BombSpeed-1,X
+            lda #$FF
+            sta BombPosOY-1,X
+            lda #$00
             dex
             bne @loopg
             ldx #NMSHOTS    ; Clear all shoots
@@ -224,44 +230,44 @@ DrawShield: ldx #1
             sta Colour
             lda #BLOCK
             jsr DrawChar
-            ldx #2
+            inx
             jsr DrawChar
             ldx #5
             jsr DrawChar
-            ldx #6
+            inx
             jsr DrawChar
             ldx #9
             jsr DrawChar
-            ldx #10
+            inx
             jsr DrawChar
             ldx #13
             jsr DrawChar
-            ldx #14
+            inx
             jsr DrawChar
 
             ldx #1
             ldy #28
             lda #BLOCKL
             jsr DrawChar
-            ldx #2
+            inx
             lda #BLOCKR
             jsr DrawChar
             ldx #5
             lda #BLOCKL
             jsr DrawChar
-            ldx #6
+            inx
             lda #BLOCKR
             jsr DrawChar
             ldx #9
             lda #BLOCKL
             jsr DrawChar
-            ldx #10
+            inx
             lda #BLOCKR
             jsr DrawChar
             ldx #13
             lda #BLOCKL
             jsr DrawChar
-            ldx #14
+            inx
             lda #BLOCKR
             jsr DrawChar
             rts
@@ -282,7 +288,7 @@ draw1l:
             jsr PrintBCD
             lda Res
             jsr PrintBCD
-            lda #(48+$80)
+            lda #(48+$80)   ; Write a zero, to multiply x10 the score
             jsr DrawChar
             inx
             inx
@@ -308,7 +314,7 @@ draw1l:
             jsr PrintBCD
             lda Res
             jsr PrintBCD
-            lda #(48+$80)
+            lda #(48+$80)   ; Write an additional zero
             jsr DrawChar
             rts
 
@@ -322,12 +328,10 @@ UpdateHiSc: lda Score       ; Update the high score
 ; pixel movement, so that routine gives only the initial situation.
 
 MovCh:
-            ldx #0
-@loop:
-            lda DefChars,x
-            sta GRCHARS1,x
-            inx
-            cpx #(LASTCH+1)*8
+            ldx #(LASTCH+1)*8+1
+@loop:      lda DefChars-1,x
+            sta GRCHARS1-1,x
+            dex
             bne @loop
             rts
 
@@ -402,13 +406,10 @@ IrqHandler: pha
             lda Direction   ; Invert the direction
             eor #$FF
             sta Direction
-@cont:
-@cont2:     lda AlienPosY   ; Check if the aliens came to bottom of screen
+@cont:      lda AlienPosY   ; Check if the aliens came to bottom of screen
             cmp #28*8
             bne @draw
-            jsr GameOver
-            ;lda #2          ; Reset the position of aliens (placeholder)
-            ;sta AlienPosY
+            jsr GameOver    ; In this case, the game is finished
 @draw:      lda #ALIEN1
             sta AlienCode1
             lda #ALIEN2
@@ -423,7 +424,7 @@ IrqHandler: pha
             lda CannonPos   ; Update the OldCannonP value to the current pos.
             sta OldCannonP
 @nochange:  jsr DrawCannon
-            jsr CannonFire  ; Update the position of cannon shots
+            jsr MoveShoots  ; Update the position of cannon shots
             inc IrqCn
 @exitirq:   pla             ; Retrieve registers
             tay
@@ -461,6 +462,7 @@ ClearCannon:
             sta Colour
             lda #EMPTY          ; Space
             jsr DrawChar
+            rts
 
 ; Draw aliens on the screen. They are several lines with at most 8 aliens
 ; each. The presence of an alien in the first row is given by bits in the
@@ -577,13 +579,12 @@ UpdMinMax:  cpx AlienMinX
 
 ; Control the movement of the bullet/laser shot fired by the cannon.
 
-CannonFire: ldx #0              ; Update the position of the shot
-@loop:      lda FireSpeed,X     ; Check if the shot is active (speed>0)
-            cmp #0
+MoveShoots: ldx #0              ; Update the position of the shot
+@loop:      lda FireSpeed,X     ; Check if the shot is active (speed!=0)
             beq @cont
             lda FirePosY,X
             sec                 ; If speed >0, update current Y position
-            sbc FireSpeed,X     ; The movement is vertical, so subtract
+            sbc FireSpeed,X     ; The movement is vertical, subtract
             cmp #1              ; Check if we reached the top of the screen
             bcs @stillf
             lda #$FF            ; In this case, destroy the bomb
@@ -599,7 +600,7 @@ loop4:      stx tmpindex
             lda FirePosX,X
             sta tmpx            ; Store the X position of the shot
             lda FirePosOY,X
-            cmp FirePosY,X
+            cmp FirePosY,X      ; Check if the shot should be redrawn
             beq notmove
             tay
             lda #EMPTY          ; Erase the previous shot
@@ -640,8 +641,6 @@ collision:  cmp #ALIEN1
             beq alienshot
             cmp #ALIEN4
             beq alienshot
-            ;cmp #BOMB
-            ;beq bombshot
             cmp #BLOCK
             beq bunkershot
             cmp #BLOCKR
@@ -710,18 +709,6 @@ bombshot:   lda #EXPLOSION1
             lda #$00
             ldx tmpindex
             sta FireSpeed,X
-;             ldx #$0             ; If shots destroy bomb, game is too easy
-; @searchb:   lda BombPosX,X      ; Compare the X position of the bomb
-;             cmp tmpx
-;             bne @searchl
-;             lda BombPosY,X      ; Compare the Y positions
-;             cmp tmpy
-;             bne @searchl
-;             lda #$0             ; Bomb hit found: destroy it!
-;             sta BombSpeed,X
-; @searchl:   inx
-;             cpx #NMBOMBS
-;             bne @searchb
             jmp notmove
 
 ; Check if the player won the game.
@@ -764,6 +751,7 @@ CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
             lda Period          ; Decrease Period (increase alien speed)
             sec
             sbc #$02
+            bcc @exit           ; Avoid having "negative" speeds
             sta Period
 @exit:      rts
 
@@ -1021,32 +1009,26 @@ GetChar:    stx Dummy2
 ; Draw everywhere the character contained in the A register. Employs X.
 
 CLS:
-            size=16*31/4
+            size=16*31/4+1
             ldx #size
-@loop:      sta MEMSCR,X            ; A (small) degree of loop unrolling avoids
-            sta MEMSCR+size,X       ; to mess with a 16-bit loop.
-            sta MEMSCR+size*2,X
-            sta MEMSCR+size*3,X
+@loop:      sta MEMSCR-1,X          ; A (small) degree of loop unrolling avoids
+            sta MEMSCR+size-1,X     ; to mess with a 16-bit loop.
+            sta MEMSCR+size*2-1,X
+            sta MEMSCR+size*3-1,X
             dex
             bne @loop
-            sta MEMSCR,X            ; A (small) degree of loop unrolling avoids
-            sta MEMSCR+size,X       ; to mess with a 16-bit loop.
-            sta MEMSCR+size*2,X
-            sta MEMSCR+size*3,X
             rts
+
+; Put the colour code contained in A everywhere in the screen
 
 PaintColour:
             ldx #size
-@loop:      sta MEMCLR,X
-            sta MEMCLR+size,X
-            sta MEMCLR+size*2,X
-            sta MEMCLR+size*3,X
+@loop:      sta MEMCLR-1,X
+            sta MEMCLR+size-1,X
+            sta MEMCLR+size*2-1,X
+            sta MEMCLR+size*3-1,X
             dex
             bne @loop
-            sta MEMCLR,X
-            sta MEMCLR+size,X
-            sta MEMCLR+size*2,X
-            sta MEMCLR+size*3,X
             rts
 
 ; Random number generation routine. Adapted from here:
