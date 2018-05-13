@@ -70,12 +70,22 @@
         VICCOLNC = $9002    ; Screen width in columns and video memory addr.
         VICROWNC = $9003    ; Screen height, 8x8 or 8x16 chars, scan line addr.
         VICCHGEN = $9005    ; Character gen. and video matrix addresses.
+        GEN1     = $900A    ; First sound generator
+        GEN2     = $900B    ; Second sound generator
+        GEN3     = $900C    ; Third sound generator
+        NOISE    = $900D    ; Noise sound generator
+        VOLUME   = $900E    ; Volume and additional colour info
         VICCOLOR = $900F    ; Screen and border colours
 
         MEMSCR   = $1E00    ; Start address of the screen memory (unexp. VIC)
         MEMCLR   = $9600    ; Start address of the colour memory (unexp. VIC)
 
         REPEATKE = $028A    ; Repeat all keys
+
+
+        VOICE1  = GEN2
+        VOICE2  = GEN1
+        EFFECTS = GEN3
 
 .export main
 .segment "STARTUP"
@@ -165,6 +175,8 @@ Init:
             lda #$FF        ; Move the character generator address to $1C00
             sta VICCHGEN    ; while leaving ch. 128-255 to their original pos.
             jsr MovCh       ; Load the graphic chars
+            lda #$0F        ; Turn on the volume
+            sta VOLUME
             sei             ; Configure the interrupt handler
             lda #<IrqHandler
             sta $0314
@@ -425,7 +437,9 @@ IrqHandler: pha
 @nochange:  jsr DrawCannon
             jsr MoveShoots  ; Update the position of cannon shots
             inc IrqCn
-@exitirq:   pla             ; Restore registers
+@exitirq:   jsr Music1
+            jsr Music2
+            pla             ; Restore registers
             tay
             pla
             tax
@@ -569,10 +583,15 @@ MoveShoots: ldx #0              ; Update the position of the shot
 @loop:      lda FireSpeed,X     ; Check if the shot is active (speed!=0)
             beq @cont
             lda FirePosY,X
+            ora #$80
+            sta EFFECTS
+            lda FirePosY,X
             sec                 ; If speed >0, update current Y position
             sbc FireSpeed,X     ; The movement is vertical, subtract
             cmp #1              ; Check if we reached the top of the screen
             bcs @stillf
+            lda #$00
+            sta EFFECTS
             lda #$FF            ; In this case, destroy the bomb
             sta FireSpeed,X
 @stillf:    sta FirePosY,X
@@ -600,6 +619,7 @@ loop4:      stx tmpindex
             bne @normal
             lda #0
             sta FireSpeed,X
+            sta EFFECTS
 @normal:    lda FirePosY,X
             sta tmpy
             sta FirePosOY,X     ; Save the current position
@@ -633,7 +653,7 @@ collision:  cmp #ALIEN1
             beq bunkershot
             cmp #BLOCKL
             beq bunkershot
-            jsr CheckWin
+backcoll:   jsr CheckWin
             jmp notmove
 
 ; Handle the different collisions.
@@ -644,7 +664,7 @@ bunkershot: lda #EXPLOSION1
             lda #$FF
             ldx tmpindex
             sta FireSpeed,X
-            jmp notmove
+            jmp backcoll
 
 alienshot:  lda Score
             clc
@@ -689,12 +709,12 @@ alienshot:  lda Score
             sta AliensR3s
 @follow:    ldx tmpx
             ldy tmpy
-bombshot:   lda #EXPLOSION1
+            lda #EXPLOSION1
             jsr DrawChar
-            lda #$00
+            lda #$FF
             ldx tmpindex
             sta FireSpeed,X
-            jmp notmove
+            jmp backcoll
 
 ; Check if the player won the game.
 
@@ -709,6 +729,8 @@ CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
             bne @exit
             lda #$FF            ; If we come here, all aliens have been shot
             sta Win             ; That will stop the game
+            lda #$00            ; Mute all effects
+            sta EFFECTS
             ldx #4              ; write "YOU WON"
             ldy #15
             lda #YELLOW
@@ -742,7 +764,9 @@ CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
 
 ; Game over! Zero the score, turn the screen to red and write "GAME OVER"
 
-GameOver:   lda #$FF
+GameOver:   lda #$00            ; Mute all effects
+            sta EFFECTS
+            lda #$FF
             sta Win             ; Stop the game
             jsr ZeroScore       ; Put the score to zero
             lda #RED            ; Put all the screen in red (sooo bloody!)
@@ -922,6 +946,135 @@ DropBomb:   jsr GetRand
             adc #$FF
             sta BombPosX,Y
 @nobomb:    rts
+
+; Music driver. It should be called every IRQ to handle music
+
+Music1:     ldy Voice1ctr
+            beq @playnext
+            dey 
+            sty Voice1ctr
+            rts
+
+@playnext:   ldx Voice1ptr
+            lda Voice1data,x
+            cmp #repeatm
+            beq @repeat
+            cmp #endloop
+            beq @endmloop
+            and #maskcode
+            cmp #loopcode
+            beq @loopmusic
+            cmp #notecode
+            beq @note
+            cmp #duracode
+            beq @duration
+
+@exitmusic:  inx
+            stx Voice1ptr
+            rts
+
+@loopmusic:  lda Voice1data,x
+            and #unmask
+            sta Loop1ctr
+            inx
+            stx Voice1ptr
+            stx Loop1str
+            jmp @playnext
+
+@endmloop:   ldy Loop1ctr
+            dey
+            sty Loop1ctr
+            beq @exitloop
+            ldx Loop1str
+            stx Voice1ptr
+            jmp @playnext
+@exitloop:  inx
+            stx Voice1ptr
+            jmp @playnext
+
+@note:       lda Voice1data,x
+            and #unmask
+            clc
+            adc #128+32
+            sta VOICE1
+            lda Voice1drt
+            sta Voice1ctr
+            jmp @exitmusic
+
+@duration:   lda Voice1data,x
+            and #unmask
+            sta Voice1drt
+            inx
+            stx Voice1ptr
+            jmp @playnext
+
+@repeat:     ldx #$FF            ; That will overflow to 0 at the next inx
+            jmp @exitmusic
+
+; Music driver for the second voice. Very similar to voice 1.
+
+Music2:     ldy Voice2ctr
+            beq @playnext
+            dey 
+            sty Voice2ctr
+            rts
+
+@playnext:   ldx Voice2ptr
+            lda Voice2data,x
+            cmp #repeatm
+            beq @repeat
+            cmp #endloop
+            beq @endmloop
+            and #maskcode
+            cmp #loopcode
+            beq @loopmusic
+            cmp #notecode
+            beq @note
+            cmp #duracode
+            beq @duration
+
+@exitmusic:  inx
+            stx Voice2ptr
+            rts
+
+@loopmusic:  lda Voice2data,x
+            and #unmask
+            sta Loop2ctr
+            inx
+            stx Voice2ptr
+            stx Loop2str
+            jmp @playnext
+
+@endmloop:   ldy Loop2ctr
+            dey
+            sty Loop2ctr
+            beq @exitloop
+            ldx Loop2str
+            stx Voice2ptr
+            jmp @playnext
+@exitloop:  inx
+            stx Voice2ptr
+            jmp @playnext
+
+@note:       lda Voice2data,x
+            and #unmask
+            clc
+            adc #128+32
+            sta VOICE2
+            lda Voice2drt
+            sta Voice2ctr
+            jmp @exitmusic
+
+@duration:   lda Voice2data,x
+            and #unmask
+            sta Voice2drt
+            inx
+            stx Voice2ptr
+            jmp @playnext
+
+@repeat:     ldx #$FF            ; That will overflow to 0 at the next inx
+            jmp @exitmusic
+
 
 ; Draw the character in A in the position given by the X and Y registers
 ; Since the screen is 16 characters wide, we need to shift the Y register
@@ -1136,6 +1289,66 @@ FirePosX:   .res NMSHOTS, $00   ; Array with X positions of bullet
 FirePosY:   .res NMSHOTS, $00   ; Array with Y positions of bullet
 FirePosOY:  .res NMSHOTS, $00   ; Array with old Y positions of bullet
 
+; Music data. Much is loop-based, to reduce mem occupation. 
+; The code for a loop is as follows:
+; 1 byte: 10xx xxxx where the xxx xxx represent the number of times the loop
+;                   should be repeated
+; Special code: 1111 1111 repeat from start
+; The code for a note is as follows:
+;         01 zz zzzz where zz zzzz represents the distance in semitones from C
+;         01 11 1111 is a silence
+; Special codes for note durations:
+;         00 ss ssss specify that the following notes should have the given
+;            duration in 1/60's of seconds
+loopcode = %10000000
+notecode = %01000000
+silence  = %01111111
+duracode = %00000000
+endloop  = %11000000
+repeatm  = %11111111
+maskcode = %11000000
+unmask   = %00111111
+
+Voice1ptr:  .byte $00
+Voice1ctr:  .byte $00
+Loop1ctr:   .byte $00
+Loop1str:   .byte $00
+Voice1drt:  .byte $00
+
+Voice2ptr:  .byte $00
+Voice2ctr:  .byte $00
+Loop2ctr:   .byte $00
+Loop2str:   .byte $00
+Voice2drt:  .byte $00
+
+Voice1data: .byte duracode + 30
+            .byte loopcode + 2
+            ; a simple diatonic scale
+            .byte notecode + 0, notecode + 2, notecode + 4, notecode + 5
+            .byte notecode + 7, notecode + 9, notecode + 11, notecode + 12
+            .byte endloop
+            
+            .byte loopcode + 2
+            ; a simple diatonic scale
+            .byte notecode + 24, notecode + 26, notecode + 28, notecode + 29
+            .byte notecode + 31, notecode + 33, notecode + 35, notecode + 36
+            .byte endloop
+            
+            .byte repeatm
+
+Voice2data: .byte duracode + 15
+            .byte loopcode + 8
+            ; a simple diatonic scale
+            .byte notecode + 40, silence
+            .byte notecode + 48, silence
+            .byte endloop
+
+            .byte loopcode + 16
+            ; a simple diatonic scale
+            .byte notecode + 32, silence
+            .byte endloop
+            
+            .byte repeatm
 
 DefChars:
             ALIEN1 = 0
