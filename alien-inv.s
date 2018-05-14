@@ -64,6 +64,11 @@
 ; KERNAL routines used
         GETIN = $FFE4
 
+; Page-0 addresses used for indirect indexed address
+
+        LAB_01 = $01
+        LAB_02 = $02
+
 ; VIC-chip addresses
         VICSCRHO = $9000    ; Horisontal position of the screen
         VICSCRVE = $9001    ; Vertical position of the screen
@@ -210,6 +215,7 @@ StartGame:
             lda #$00
             sta Win
             sta IrqCn
+            sta NOISE
             sta AlienPosX
             ldx #NMBOMBS    ; Clear all bombs
 @loopg:     sta BombSpeed-1,X
@@ -757,26 +763,24 @@ CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
             ldy #15
             lda #YELLOW
             sta Colour
-            lda #(25+$80)       ; Y
-            jsr DrawChar
-            inx
-            lda #(15+$80)       ; O
-            jsr DrawChar
-            inx
-            lda #(21+$80)       ; U
-            jsr DrawChar
-            inx
-            lda #(32+$80)       ;
-            jsr DrawChar
-            inx
-            lda #(23+$80)       ; W
-            jsr DrawChar
-            inx
-            lda #(15+$80)       ; O
-            jsr DrawChar
-            inx
-            lda #(14+$80)       ; N
-            jsr DrawChar
+            lda #<YouWonSt
+            sta LAB_01
+            lda #>YouWonSt
+            sta LAB_02
+            jsr PrintStr
+            lda #$00
+            sta VOICE2
+            lda #$B0            ; Win
+            sta VOICE1
+            jsr Delay
+            lda #$C0
+            sta VOICE1
+            jsr Delay
+            lda #$D0
+            sta VOICE1
+            jsr Delay
+            lda #$00
+            sta VOICE1
             lda Period          ; Decrease Period (increase alien speed)
             sec
             sbc #$02
@@ -788,7 +792,6 @@ CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
 
 GameOver:   lda #$00            ; Mute all effects
             sta EFFECTS
-            sta NOISE
             lda #$FF
             sta Win             ; Stop the game
             lda #$80
@@ -797,34 +800,20 @@ GameOver:   lda #$00            ; Mute all effects
             lda #RED            ; Put all the screen in red (sooo bloody!)
             sta Colour
             jsr PaintColour
+            lda #$B0            ; Explosion sound
+            sta NOISE
+            jsr Delay
+            jsr Delay
+            jsr Delay
+            lda #$00
+            sta NOISE
             ldx #2              ; write "GAME OVER"
             ldy #15
-            lda #(7+$80)        ; G
-            jsr DrawChar
-            inx
-            lda #(1+$80)        ; A
-            jsr DrawChar
-            inx
-            lda #(13+$80)       ; M
-            jsr DrawChar
-            inx
-            lda #(5+$80)        ; E
-            jsr DrawChar
-            inx
-            lda #(32+$80)       ;
-            jsr DrawChar
-            inx
-            lda #(15+$80)       ; O
-            jsr DrawChar
-            inx
-            lda #(22+$80)       ; V
-            jsr DrawChar
-            inx
-            lda #(5+$80)        ; E
-            jsr DrawChar
-            inx
-            lda #(18+$80)       ; R
-            jsr DrawChar
+            lda #<GameOverSt
+            sta LAB_01
+            lda #>GameOverSt
+            sta LAB_02
+            jsr PrintStr
             lda #PERIODS
             sta Period
 @exit:      rts
@@ -1153,6 +1142,22 @@ DrawChar:   sta Dummy1
 @exit:      ldy Dummy3
             rts
 
+; Print a string (null terminated) whose address is contained in LAB_01 and 
+; LAB_02 at the position given by X and Y pointers
+
+PrintStr:   sty Dummy3
+            ldy #$00
+@loop:      lda (LAB_01),Y
+            beq @exit
+            sty tmp4
+            ldy Dummy3
+            jsr DrawChar
+            ldy tmp4
+            iny
+            inx
+            jmp @loop
+@exit:      ldy Dummy3
+
 ; Get the screen code of the character in the X and Y locations.
 ; The character is returned in A.
 
@@ -1202,6 +1207,16 @@ PaintColour:
             sta MEMCLR+size*2-1,X
             sta MEMCLR+size*3-1,X
             dex
+            bne @loop
+            rts
+
+; A simple delay
+
+Delay:      ldx #$FF
+            ldy #$FF
+@loop:      dex
+            bne @loop
+            dey
             bne @loop
             rts
 
@@ -1369,7 +1384,7 @@ Loop2str:   .byte $00
 Voice2drt:  .byte $00
 Voice2nod:  .byte $00
 
-Voice1data: .byte duracode + 30, 15
+Voice1data: .byte duracode + 30, 25
             .byte loopcode + 2
             ; a simple diatonic scale
             .byte notecode + 0, notecode + 2, notecode + 4, notecode + 5
@@ -1384,7 +1399,7 @@ Voice1data: .byte duracode + 30, 15
             
             .byte repeatm
 
-Voice2data: .byte duracode + 15, 10
+Voice2data: .byte duracode + 15, 12
             .byte loopcode + 8
             ; a simple diatonic scale
             .byte notecode + 40, silence
@@ -1397,6 +1412,12 @@ Voice2data: .byte duracode + 15, 10
             .byte endloop
             
             .byte repeatm
+
+YouWonSt:   .byte (25+$80), (15+$80), (21+$80), (32+$80), (23+$80), (15+$80)
+            .byte (14+$80), 0
+
+GameOverSt: .byte (7+$80), (1+$80), (13+$80), (5+$80), (32+$80), (15+$80)
+            .byte (22+$80), (5+$80), (18+$80), 0
 
 DefChars:
             ALIEN1 = 0
