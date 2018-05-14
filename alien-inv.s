@@ -130,7 +130,13 @@ main:
             cmp #$20        ; Space: fire!
             bne @continue3
             jsr CannonShoot
-@continue3: jmp @mainloop
+@continue3: lda keyin
+            cmp #$4D        ; M toggle music on/off
+            bne @continue4
+            lda VoiceBase
+            eor #$80
+            sta VoiceBase
+@continue4: jmp @mainloop
 
 
 CannonShoot:
@@ -222,6 +228,8 @@ StartGame:
             jsr PaintColour
             jsr DrawShield
             cli
+            lda #32
+            sta VoiceBase
             rts
 
 ; Put zero in the current score
@@ -389,6 +397,8 @@ IrqHandler: pha
             lda #0
             sta IrqCn
             jsr draw1l
+            lda #$00
+            sta NOISE
             lda #EMPTY      ; Erase aliens in the current position
             sta AlienCode1
             sta AlienCode2
@@ -398,6 +408,12 @@ IrqHandler: pha
             lda Win         ; If Win !=0 stop the game
             cmp #$00
             bne @exitirq
+            lda VoiceBase
+            bmi @nomusic
+            lda AlienPosY
+            lsr
+            lsr
+@nomusic:   sta VoiceBase
             inc AlienPosY   ; Increment the Y position of the aliens
             lda Direction   ; Increment or decrement the X position,
             and #$01        ; depending on the Direction value
@@ -583,7 +599,8 @@ MoveShoots: ldx #0              ; Update the position of the shot
 @loop:      lda FireSpeed,X     ; Check if the shot is active (speed!=0)
             beq @cont
             lda FirePosY,X
-            ora #$80
+            clc
+            adc #$B0
             sta EFFECTS
             lda FirePosY,X
             sec                 ; If speed >0, update current Y position
@@ -666,7 +683,9 @@ bunkershot: lda #EXPLOSION1
             sta FireSpeed,X
             jmp backcoll
 
-alienshot:  lda Score
+alienshot:  lda #$D0
+            sta NOISE
+            lda Score
             clc
             adc #$01
             sta Score
@@ -729,7 +748,10 @@ CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
             bne @exit
             lda #$FF            ; If we come here, all aliens have been shot
             sta Win             ; That will stop the game
+            lda #$80
+            sta VoiceBase
             lda #$00            ; Mute all effects
+            sta NOISE
             sta EFFECTS
             ldx #4              ; write "YOU WON"
             ldy #15
@@ -766,8 +788,11 @@ CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
 
 GameOver:   lda #$00            ; Mute all effects
             sta EFFECTS
+            sta NOISE
             lda #$FF
             sta Win             ; Stop the game
+            lda #$80
+            sta VoiceBase
             jsr ZeroScore       ; Put the score to zero
             lda #RED            ; Put all the screen in red (sooo bloody!)
             sta Colour
@@ -999,7 +1024,8 @@ Music1:     ldy Voice1ctr
 @note:      lda Voice1data,x
             and #unmask
             clc
-            adc #128+32
+            adc #128
+            adc VoiceBase
             sta VOICE1
             lda Voice1drt
             sta Voice1ctr
@@ -1070,7 +1096,8 @@ Music2:     ldy Voice2ctr
 @note:      lda Voice2data,x
             and #unmask
             clc
-            adc #128+32
+            adc #128
+            adc VoiceBase
             sta VOICE2
             lda Voice2drt
             sta Voice2ctr
@@ -1325,6 +1352,8 @@ endloop  = %11000000
 repeatm  = %11111111
 maskcode = %11000000
 unmask   = %00111111
+
+VoiceBase:  .byte $00
 
 Voice1ptr:  .byte $00
 Voice1ctr:  .byte $00
