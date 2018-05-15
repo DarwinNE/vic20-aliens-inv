@@ -607,7 +607,7 @@ MoveShoots: ldx #0              ; Update the position of the shot
             lda FirePosY,X
             clc
             adc #$B0
-            sta EFFECTS
+            sta EFFECTS         ; Sound effect: peeewwww!!!
             lda FirePosY,X
             sec                 ; If speed >0, update current Y position
             sbc FireSpeed,X     ; The movement is vertical, subtract
@@ -687,6 +687,7 @@ bunkershot: lda #EXPLOSION1
             lda #$FF
             ldx tmpindex
             sta FireSpeed,X
+            sta FirePosY,X      ; This would cause a redraw erasing the shot
             jmp backcoll
 
 alienshot:  lda #$D0
@@ -739,6 +740,7 @@ alienshot:  lda #$D0
             lda #$FF
             ldx tmpindex
             sta FireSpeed,X
+            sta FirePosY,X      ; This would cause a redraw erasing the shot
             jmp backcoll
 
 ; Check if the player won the game.
