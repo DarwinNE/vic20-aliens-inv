@@ -64,10 +64,27 @@
 ; KERNAL routines used
         GETIN = $FFE4
 
-; Page-0 addresses used for indirect indexed address
+; Page-0 addresses used (for indirect indexed addressing and other things)
 
         LAB_01 = $01
         LAB_02 = $02
+        LAB_03 = $03
+        LAB_04 = $04
+        LAB_05 = $05
+        LAB_06 = $06
+        LAB_07 = $07
+        LAB_08 = $08
+        LAB_09 = $09
+        LAB_0A = $0A
+
+        CharCode = LAB_03   ; Employed in DrawChar
+        PosX = LAB_04
+        PosY = LAB_05
+        Colour = LAB_06     ; Colour to be used by the printing routines
+        tmpindex = LAB_07   ; Temporary variables
+        tmpx = LAB_08
+        tmpy = LAB_09
+        tmp4 = LAB_0A
 
 ; VIC-chip addresses
         VICSCRHO = $9000    ; Horisontal position of the screen
@@ -443,13 +460,13 @@ IrqHandler: pha
             cmp #28*8
             bne @draw
             jsr GameOver    ; In this case, the game is finished
-@draw:      lda #ALIEN1
-            sta AlienCode1
-            lda #ALIEN2
-            sta AlienCode2
-            lda #ALIEN3
-            sta AlienCode3
-            jsr DrawAliens
+@draw:      lda AlienPosY
+            ror
+            bcs @altaliens
+            jsr alienst1
+            jmp @normal
+@altaliens: jsr alienst2
+@normal:    jsr DrawAliens
 @cont3:     lda CannonPos   ; Check if the cannon position has changed
             cmp OldCannonP
             beq @nochange
@@ -467,6 +484,23 @@ IrqHandler: pha
             tax
             pla
             jmp $EABF       ; Jump to the standard IRQ handling routine
+
+
+alienst1:   lda #ALIEN1
+            sta AlienCode1
+            lda #ALIEN2
+            sta AlienCode2
+            lda #ALIEN3
+            sta AlienCode3
+            rts
+
+alienst2:   lda #ALIEN2
+            sta AlienCode1
+            lda #ALIEN1
+            sta AlienCode2
+            lda #ALIEN4
+            sta AlienCode3
+            rts
 
 ; Draw the cannon on the screen, at the current position, contained in
 ; CannonPos (in pixels).
@@ -558,21 +592,21 @@ DrawAliens: lda #$ff
 
 @drawAlien0:
             lda AlienCode1
-            sta Dummy1
+            sta CharCode
             lda #RED
             jsr DrawAlienG
             jmp @ret1
 
 @drawAlien1:
             lda AlienCode2
-            sta Dummy1
+            sta CharCode
             lda #CYAN
             jsr DrawAlienG
             jmp @ret2
 
 @drawAlien2:
             lda AlienCode3
-            sta Dummy1
+            sta CharCode
             lda #GREEN
             jsr DrawAlienG
             jmp @ret3
@@ -580,7 +614,7 @@ DrawAliens: lda #$ff
 ; Draw a generic alien routine and update the min/max X positions variables.
 ; A should contain the colour to be used for the aliens.
 ; X and Y contain the position in the screen.
-; In Dummy1, the alien character code should be written.
+; In CharCode, the alien character code should be written.
 
 DrawAlienG: sta Colour
             stx tmp4
@@ -594,7 +628,7 @@ DrawAlienG: sta Colour
 @nomin:     cpx AlienMaxX
             bcc @nomax
             stx AlienMaxX
-@nomax:     lda Dummy1
+@nomax:     lda CharCode
             jsr DrawChar
             ldx tmp4
             rts
@@ -1110,13 +1144,13 @@ Music2:     ldy Voice2ctr
 
 ; Draw the character in A in the position given by the X and Y registers
 ; Since the screen is 16 characters wide, we need to shift the Y register
-; to multiply times 16 and then add the X contents. It uses Dummy1 and Dummy2.
+; to multiply times 16 and then add the X contents. It uses CharCode and PosX.
 ; Colour indicates the colour code of the character. It uses 3 bytes in the
 ; stack and does not change registers.
 
-DrawChar:   sta Dummy1
-            stx Dummy2
-            sty Dummy3
+DrawChar:   sta CharCode
+            stx PosX
+            sty PosY
             cpx #16         ; Check if the X value is out of range
             bcs @exit       ; Exit if X greater than 16 (no of columns)
             cpy #31         ; Check if the Y value is out of range
@@ -1128,43 +1162,43 @@ DrawChar:   sta Dummy1
             asl             ; If it shifts an 1 in the carry, this means that
             bcc @tophalf    ; we need to write in the bottom-half of the screen
             clc
-            adc Dummy2
+            adc PosX
             tay
             lda Colour
             sta MEMCLR+256,Y
-            lda Dummy1
+            lda CharCode
             sta MEMSCR+256,Y
             jmp @exit
-@tophalf:   adc Dummy2
+@tophalf:   adc PosX
             tay
             lda Colour
             sta MEMCLR,Y
-            lda Dummy1
+            lda CharCode
             sta MEMSCR,Y
-@exit:      ldy Dummy3
+@exit:      ldy PosY
             rts
 
 ; Print a string (null terminated) whose address is contained in LAB_01 and 
 ; LAB_02 at the position given by X and Y pointers
 
-PrintStr:   sty Dummy3
+PrintStr:   sty PosY
             ldy #$00
 @loop:      lda (LAB_01),Y
             beq @exit
             sty tmp4
-            ldy Dummy3
+            ldy PosY
             jsr DrawChar
             ldy tmp4
             iny
             inx
             jmp @loop
-@exit:      ldy Dummy3
+@exit:      ldy PosY
 
 ; Get the screen code of the character in the X and Y locations.
 ; The character is returned in A.
 
-GetChar:    stx Dummy2
-            sty Dummy3
+GetChar:    stx PosX
+            sty PosY
             cpx #16         ; Check if the X value is out of range
             bcs @exit       ; Exit if X greater than 16 (no of columns)
             cpy #31         ; Check if the Y value is out of range
@@ -1176,14 +1210,14 @@ GetChar:    stx Dummy2
             asl             ; If it shifts an 1 in the carry, this means that
             bcc @tophalf    ; we need to write in the bottom-half of the screen
             clc
-            adc Dummy2
+            adc PosX
             tay
             lda MEMSCR+256,Y
             jmp @exit
-@tophalf:   adc Dummy2
+@tophalf:   adc PosX
             tay
             lda MEMSCR,Y
-@exit:      ldy Dummy3
+@exit:      ldy PosY
             rts
 
 ; Clear the screen. This maybe is too slow to be used in an interrupt handler.
@@ -1301,21 +1335,13 @@ PrintBCD:   pha             ; Save the BCD value
 ; DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA
 
 Random:     .word $0000
-Dummy1:     .byte $00           ; Employed in DrawChar
-Dummy2:     .byte $00
-Dummy3:     .byte $00
 IrqCn:      .byte $00
-tmpindex:   .byte $00
-tmpx:       .byte $00
-tmpy:       .byte $00
-tmp4:       .byte $00
 keyin:      .byte $00           ; Last key typed.
 Val:        .word $0000         ; Used for the BCD conversion
 Res:        .res 3, $00         ; the result of the BCD conversion
 
 Period:     .byte 20            ; Higher = slower alien movement
 
-Colour:     .byte $00           ; Colour to be used by the printing routines
 AliensR1s:  .byte $FF           ; Presence of aliens in row 1
 AliensR2s:  .byte $FF           ; Same for row 2
 AliensR3s:  .byte $FF           ; Same for row 3
