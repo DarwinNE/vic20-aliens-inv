@@ -99,6 +99,11 @@
         VOLUME   = $900E    ; Volume and additional colour info
         VICCOLOR = $900F    ; Screen and border colours
 
+        PORTAVIA1 = $9111   ; Port A 6522 (joystick)
+        PORTAVIA1d = $9113  ; Port A 6522 (joystick)
+        PORTBVIA2 = $9120   ; Port B 6522 2 value (joystick)
+        PORTBVIA2d = $9122  ; Port B 6522 2 direction (joystick
+
         MEMSCR   = $1E00    ; Start address of the screen memory (unexp. VIC)
         MEMCLR   = $9600    ; Start address of the colour memory (unexp. VIC)
 
@@ -120,45 +125,67 @@
 
 main:
             jsr Init        ; Init the game (load graphic chars, etc...)
-@restart:   jsr StartGame   ; Set the starting values of game variables
-@mainloop:  jsr GETIN       ; Main loop waiting for keyboard events
-            beq @mainloop
+restart:    jsr StartGame   ; Set the starting values of game variables
+mainloop:   lda Joystick
+            beq @ccc
+            jsr ShortDelay
+            lda #$00
+            sta Joystick
+@ccc:       jsr GETIN       ; Main loop waiting for keyboard events
             sta keyin
+            lda #$ff
+            sta Joystick
+            lda PORTAVIA1
+            and #%00010000  ; Left
+            beq left
+            lda PORTBVIA2
+            and #%10000000  ; Right
+            beq right
+            lda PORTAVIA1
+            and #%00100000  ; Fire
+            beq fire
+            lda #$00
+            sta Joystick
+            lda keyin
+            beq mainloop
             cmp #$0D        ; Wait for return if the game stopped
             bne @norestart
             lda Win
             cmp #$00        ; If the game has stopped, restart
-            bne @restart
+            bne restart
 @norestart: lda keyin
-            cmp #$58        ; X: increase position of the cannon
-            bne @continue1
-            lda #$08
-            clc
-            adc CannonPos
-            sta CannonPos
-            cmp #$7F
-            bcc @continue1
-            lda #$7F
-            sta CannonPos
-@continue1: lda keyin
-            cmp #$5A        ; Z: decrease position of the cannon
-            bne @continue2
-            lda CannonPos
-            sec
-            sbc #$08
-            bcc @continue2
-            sta CannonPos
-@continue2: lda keyin
+            cmp #$58        ; X: increase position of the cannon (right)
+            beq right
+            cmp #$5A        ; Z: decrease position of the cannon (left)
+            beq left
             cmp #$20        ; Space: fire!
-            bne @continue3
-            jsr CannonShoot
-@continue3: lda keyin
+            beq fire
             cmp #$4D        ; M toggle music on/off
             bne @continue4
             lda VoiceBase
             eor #$80
             sta VoiceBase
-@continue4: jmp @mainloop
+@continue4: jmp mainloop
+
+right:      lda #$08
+            clc
+            adc CannonPos
+            sta CannonPos
+            cmp #$7F
+            bcc @continue
+            lda #$7F
+            sta CannonPos
+@continue:  jmp mainloop
+
+left:       lda CannonPos
+            sec
+            sbc #$08
+            bcc @continue
+            sta CannonPos
+@continue:  jmp mainloop
+
+fire:       jsr CannonShoot
+            jmp mainloop
 
 
 CannonShoot:
@@ -213,6 +240,10 @@ Init:
             cli
             lda #PERIODS
             sta Period
+            lda #$0         ; Prepare joystick
+            sta PORTAVIA1d
+            lda #$7F
+            sta PORTBVIA2d
             rts
 
 StartGame:
@@ -716,6 +747,7 @@ backcoll:   jsr CheckWin
 ; Handle the different collisions.
 ; X and Y contain the position of the collision, also available in tmpx and
 ; tmpy respectively
+
 bunkershot: lda #EXPLOSION1
             jsr DrawChar
             lda #$FF
@@ -806,7 +838,7 @@ CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
             jsr PrintStr
             lda #$00
             sta VOICE2
-            lda #$B0            ; Win
+            lda #$B0            ; Win! Play a chime!
             sta VOICE1
             jsr Delay
             lda #$C0
@@ -860,8 +892,8 @@ GameOver:   lda #$00            ; Mute all effects
 ; positions. Exploit tmpindex and tmpx, change registers A, X, Y.
 ; This routine does three things:
 ;
-; 1 - For each alien alive, and for each of the 8 bombs available, decide if
-;     a bomb is dropped by drawing a random number and check if it is inside
+; 1 - For each alien alive, and for each of the NMBOMBS bombs available, decide
+;     if a bomb is dropped by drawing a random number and check if it is inside
 ;     a given interval
 ; 2 - Update the positions of the bombs active in the screen and check for
 ;     collisions.
@@ -1178,7 +1210,7 @@ DrawChar:   sta CharCode
 @exit:      ldy PosY
             rts
 
-; Print a string (null terminated) whose address is contained in LAB_01 and 
+; Print a string (null terminated) whose address is contained in LAB_01 and
 ; LAB_02 at the position given by X and Y pointers
 
 PrintStr:   sty PosY
@@ -1250,11 +1282,14 @@ PaintColour:
 
 Delay:      ldx #$FF
             ldy #$FF
-@loop:      dex
-            bne @loop
+Delayloop:  dex
+            bne Delayloop
             dey
-            bne @loop
+            bne Delayloop
             rts
+
+ShortDelay: ldy #$40
+            jmp Delayloop
 
 ; Random number generation routine. Adapted from here:
 ; http://sleepingelephant.com/ipw-web/bulletin/bb/viewtopic.php?t=2304
@@ -1339,6 +1374,7 @@ IrqCn:      .byte $00
 keyin:      .byte $00           ; Last key typed.
 Val:        .word $0000         ; Used for the BCD conversion
 Res:        .res 3, $00         ; the result of the BCD conversion
+Joystick:   .byte $00           ; different from zero if the joystick was used
 
 Period:     .byte 20            ; Higher = slower alien movement
 
