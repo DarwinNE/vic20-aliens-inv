@@ -458,6 +458,8 @@ IrqHandler: pha
             pha
             tya
             pha
+            lda #$00
+            sta EFFECTS
             lda Win         ; If Win !=0 stop the game
             cmp #$00
             beq @contirq
@@ -592,9 +594,7 @@ MotherSh:   lda MotherPos
             lda #MOTHER3
             jsr DrawChar
 @exit:      rts
-@exitsh:    lda #$00
-            sta EFFECTS
-            rts
+@exitsh:    rts
 
 ; Draw the cannon on the screen, at the current position, contained in
 ; CannonPos (in pixels).
