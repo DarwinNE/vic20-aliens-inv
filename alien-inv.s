@@ -36,6 +36,7 @@
 
 ; Difficulty-related constants
         BOMBPROB = $F0      ; Higher = less bombs falling
+        SHIPPROB = $F5      ; Higher = less mother ships
         PERIODS = 20        ; Initial difficulty (less=faster)
 
 ; General constants
@@ -85,6 +86,8 @@
         tmpx = LAB_08
         tmpy = LAB_09
         tmp4 = LAB_0A
+
+        INITVALC=$ede4
 
 ; VIC-chip addresses
         VICSCRHO = $9000    ; Horisontal position of the screen
@@ -223,15 +226,13 @@ Init:
             sta VICCOLNC
             lda #$BE        ; Set a 31 row-high column
             sta VICROWNC
-            lda #$16        ; Center the screen vertically...
-            sta VICSCRVE
-            lda #$12        ; ... and horisontally
-            sta VICSCRHO
-            lda #$FF        ; Move the character generator address to $1C00
+            lda INITVALC
+            cmp #$05
+            beq CenterScreenNTSC
+            bne CenterScreenPAL
+ContInit:   lda #$FF        ; Move the character generator address to $1C00
             sta VICCHGEN    ; while leaving ch. 128-255 to their original pos.
             jsr MovCh       ; Load the graphic chars
-            lda #$0F        ; Turn on the volume
-            sta VOLUME
             sei             ; Configure the interrupt handler
             lda #<IrqHandler
             sta $0314
@@ -246,8 +247,24 @@ Init:
             sta PORTBVIA2d
             rts
 
+CenterScreenPAL:
+            lda #$16        ; Center the screen vertically...
+            sta VICSCRVE
+            lda #$12        ; ... and horisontally
+            sta VICSCRHO
+            jmp ContInit
+
+CenterScreenNTSC:
+            lda #$06        ; Center the screen vertically...
+            sta VICSCRVE
+            lda #$9        ; ... and horisontally
+            sta VICSCRHO
+            jmp ContInit
+
 StartGame:
             sei
+            lda #$0F        ; Turn on the volume
+            sta VOLUME
             lda #34
             sta AlienPosY   ; Initial position of aliens
             sta AlienCurrY
@@ -448,11 +465,10 @@ IrqHandler: pha
 @contirq:   lda IrqCn
             cmp Period      ; Exercute every PERIOD/60 of second
             bne @cont3
-            lda #0
+            lda #$0
             sta IrqCn
-            jsr draw1l
-            lda #$00
             sta NOISE
+            jsr draw1l
             lda #EMPTY      ; Erase aliens in the current position
             sta AlienCode1
             sta AlienCode2
@@ -507,6 +523,10 @@ IrqHandler: pha
 @nochange:  jsr DrawCannon
             jsr MoveShoots  ; Update the position of cannon shots
             inc IrqCn
+            lda IrqCn       ; Check if we should enter the mother ship
+            and #$01
+            bne @exitirq
+            jsr MotherSh
 @exitirq:   jsr Music1
             jsr Music2
             pla             ; Restore registers
@@ -531,6 +551,49 @@ alienst2:   lda #ALIEN2
             sta AlienCode2
             lda #ALIEN4
             sta AlienCode3
+            rts
+
+; Decide wether the mother ship enters the screen and handle its movement.
+
+MotherSh:   lda MotherPos
+            cmp #$FD
+            bne @moveship
+            lda Random          ; Get a random number and check if it is less
+            cmp #SHIPPROB       ; than a given threshold
+            bcc @exit
+            lda #$0F
+            sta MotherPos
+            rts
+
+@moveship:  tax
+            ldy #$1
+            lda #$A0
+            clc
+            adc MotherPos
+            sta EFFECTS
+            lda #YELLOW
+            sta Colour
+            lda #EMPTY      ; Erase the ship in the previous position
+            inx
+            inx
+            jsr DrawChar    ; Erase
+            lda MotherPos   ; Update the position of the ship
+            sec
+            sbc #$01
+            sta MotherPos
+            beq @exitsh
+            ldx MotherPos   ; Draw the ship
+            lda #MOTHER1
+            jsr DrawChar
+            inx
+            lda #MOTHER2
+            jsr DrawChar
+            inx
+            lda #MOTHER3
+            jsr DrawChar
+@exit:      rts
+@exitsh:    lda #$00
+            sta EFFECTS
             rts
 
 ; Draw the cannon on the screen, at the current position, contained in
@@ -678,7 +741,7 @@ MoveShoots: ldx #0              ; Update the position of the shot
             sbc FireSpeed,X     ; The movement is vertical, subtract
             cmp #1              ; Check if we reached the top of the screen
             bcs @stillf
-            lda #$00
+            lda #$0
             sta EFFECTS
             lda #$FF            ; In this case, destroy the bomb
             sta FireSpeed,X
@@ -741,12 +804,44 @@ collision:  cmp #ALIEN1
             beq bunkershot
             cmp #BLOCKL
             beq bunkershot
+            cmp #MOTHER1
+            beq mothershot
+            cmp #MOTHER2
+            beq mothershot
+            cmp #MOTHER3
+            beq mothershot
 backcoll:   jsr CheckWin
             jmp notmove
 
 ; Handle the different collisions.
 ; X and Y contain the position of the collision, also available in tmpx and
 ; tmpy respectively
+
+mothershot: txa
+            pha
+            ldx MotherPos   ; Draw the ship
+            ldy #$1
+            lda #EMPTY
+            jsr DrawChar
+            inx
+            jsr DrawChar
+            inx
+            jsr DrawChar
+            pla
+            tax
+            lda #EXPLOSION1
+            jsr DrawChar
+            lda #$FD
+            sta MotherPos
+            lda #$FF
+            ldx tmpindex
+            sta FireSpeed,X
+            sta FirePosY,X      ; This would cause a redraw erasing the shot
+            lda Score
+            clc
+            adc #$05
+            sta Score
+            jmp backcoll
 
 bunkershot: lda #EXPLOSION1
             jsr DrawChar
@@ -870,9 +965,12 @@ GameOver:   lda #$00            ; Mute all effects
             jsr PaintColour
             lda #$B0            ; Explosion sound
             sta NOISE
-            jsr Delay
-            jsr Delay
-            jsr Delay
+            lda #$0F
+@loop:      jsr ShortDelay
+            sec
+            sbc #$01
+            sta VOLUME
+            bne @loop
             lda #$00
             sta NOISE
             ldx #2              ; write "GAME OVER"
@@ -1373,9 +1471,10 @@ Random:     .word $0000
 IrqCn:      .byte $00
 keyin:      .byte $00           ; Last key typed.
 Val:        .word $0000         ; Used for the BCD conversion
-Res:        .res 3, $00         ; the result of the BCD conversion
-Joystick:   .byte $00           ; different from zero if the joystick was used
+Res:        .res 3, $00         ; The result of the BCD conversion
+Joystick:   .byte $00           ; Different from zero if the joystick was used
 
+MotherPos:  .byte $FD           ; Position of the mother ship ($FD: no ship)
 Period:     .byte 20            ; Higher = slower alien movement
 
 AliensR1s:  .byte $FF           ; Presence of aliens in row 1
@@ -1603,7 +1702,37 @@ DefChars:
             .byte %10110001
             .byte %01100011
             .byte %10000001
-            
-            LASTCH = EXPLOSION1
+
+            MOTHER1=12
+            .byte %00000000     ; Mother ship 1
+            .byte %00011111
+            .byte %01111111
+            .byte %11011011
+            .byte %11111111
+            .byte %01111111
+            .byte %00011111
+            .byte %00000000
+
+            MOTHER2=13
+            .byte %00000000     ; Mother ship 2
+            .byte %11111111
+            .byte %11111111
+            .byte %01101101
+            .byte %11111111
+            .byte %11111111
+            .byte %11111111
+            .byte %00000000
+
+            MOTHER3=14
+            .byte %00000000     ; Mother ship 3
+            .byte %11110010
+            .byte %11111100
+            .byte %10110110
+            .byte %11111110
+            .byte %11111100
+            .byte %11110011
+            .byte %00000000
+
+            LASTCH = MOTHER3
 
             
