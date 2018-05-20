@@ -197,7 +197,7 @@ main:
             ldy #0
             jsr 65520
             ldy #0
-@loop:      lda LoadCmd,Y
+@loop:      lda LoadCmd,Y       ; Write in the keyboard buffer
             sta 631,Y
             iny
             cpy #LoadCmdLen
