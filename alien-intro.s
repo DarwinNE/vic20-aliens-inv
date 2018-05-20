@@ -179,7 +179,7 @@ main:
             sta LAB_01
             lda #>EndL
             sta LAB_02
-            lda #WHITE
+            lda #BLACK
             sta Colour
             jsr PrintStr
             lda #<Loading
