@@ -47,6 +47,7 @@
         PosY = LAB_05
         Colour = LAB_06     ; Colour to be used by the printing routines
         tmp4 = LAB_0A
+        secs = LAB_07       ; Write in the second half of the screen
 
 
 
@@ -74,8 +75,9 @@
         REPEATKE = $028A    ; Repeat all keys
 
 
-        VOICE1  = GEN1
-        VOICE2  = GEN2
+        VOICE1  = GEN3
+        VOICE2  = GEN1
+        VOICE3  = GEN2
         EFFECTS = GEN3
 
 .export main
@@ -89,10 +91,12 @@
 
 main:
             jsr Init        ; Init the game (load graphic chars, etc...)
+            lda #32
             jsr CLS
             ldx #$0
-            ldy #$8
+            ldy #$0
             lda #BLACK
+            stx secs
             jsr PaintColour
             lda #YELLOW
             sta Colour
@@ -101,35 +105,72 @@ main:
             lda #>TitleGame
             sta LAB_02
             jsr PrintStr
-            ldx #$0
-            ldy #$12
-            lda #<Credits
+            lda #<ScoreDesc
             sta LAB_01
-            lda #>Credits
+            lda #>ScoreDesc
             sta LAB_02
+            lda #CYAN
+            sta Colour
             jsr PrintStr
-            ldx #$0
-            ldy #$14
-            lda #<L1
+            
+            ldx #0
+            ldy #0
+            lda #1
+            sta secs
+            lda #<Keys
             sta LAB_01
-            lda #>L1
+            lda #>Keys
             sta LAB_02
+            lda #MAGENTA
+            sta Colour
             jsr PrintStr
+            lda #YELLOW
+            sta MEMCLR+10*22+5
+            sta MEMCLR+10*22+6
+            sta MEMCLR+10*22+7
+            lda #RED
+            sta MEMCLR+8*22+6
+            lda #GREEN
+            sta MEMCLR+8*22+8
+            
+@loopchar:  jsr GETIN       ; Main loop waiting for keyboard events
+            beq @loopchar
+            lda #$00
+            sta GEN1
+            sta GEN2
+            sta GEN3
+            sta VOLUME
+            sei             ; Configure the interrupt handler
+            lda #<$EABF
+            sta $0314
+            lda #>$EABF
+            sta $0315
+            cli
+            lda #32
+            jsr CLS
+            ldx #44
+            ldy #$0
+            lda #$0
+            stx secs
+            lda #<LoadStr
+            sta LAB_01
+            lda #>LoadStr
+            sta LAB_02
+            lda #BLACK
+            sta Colour
+            jsr PrintStr
+            ldx #0
+            ldy #0
+            jsr 65520
+            ldy #0
+@loop:      lda LoadCmd,Y
+            sta 631,Y
             iny
-            lda #<L2
-            sta LAB_01
-            lda #>L2
-            sta LAB_02
-            jsr PrintStr
-            iny
-            lda #<L3
-            sta LAB_01
-            lda #>L3
-            sta LAB_02
-            jsr PrintStr
-mainloop:   
-@continue4: jmp mainloop
-
+            cpy #LoadCmdLen
+            bne @loop
+            lda #LoadCmdLen
+            sta 198
+            rts
 
 ; INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT
 ;
@@ -169,30 +210,8 @@ MovCh:
 
 ; IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ
 ;
-; This is the interrupt handler, called 60 times each second when the VIC-20
-; is working normally. It does the following things:
-;
-; 1 - Calculate positions of the aliens and, if necessary, redraw them
-; 2 - Calculate positions of the falling bombs and fire shoots and draw them
-; 3 - Update the position of the cannon and draw it
-; 5 - Check for collisions and handle explosions
-; 6 - Call the sound driver
-; 7 - Jump to the original IRQ handler (for scanning the keyboard, etc).
-;
-; The user interface is handled outside of the interrupt, in the main program
-; loop and the communication with the IRQ handler is made by a set of
-; appropriate flags. This approach has the following advantages:
-;
-; - The speed of the aliens and of the cannon is controlled very precisely as
-;   the IRQ handler is called at a predictable and stable rate.
-; - The code for the visualization and for the user interface (i.e. recognizing
-;   the joystick movements) is kept separate.
-;
-; The main drawback is that the IRQ is supposed to do many things and it should
-; be doing that VERY RAPIDLY in order not to mess with the calling order. As a
-; rule of thumb, I would say that the IRQ should be completed in less than 5 ms
-; at least most of times.
-;
+; Basically, only handles music here.
+; 
 ; IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ
 
 IrqHandler: pha
@@ -217,6 +236,7 @@ Music1:     ldy Voice1ctr
             bne @dec
             lda #$00
             sta VOICE1
+            sta VOICE3
 @dec:       dey 
             sty Voice1ctr
             rts
@@ -225,11 +245,7 @@ Music1:     ldy Voice1ctr
             lda Voice1data,x
             cmp #repeatm
             beq @repeat
-            cmp #endloop
-            beq @endmloop
             and #maskcode
-            cmp #loopcode
-            beq @loopmusic
             cmp #notecode
             beq @note
             cmp #duracode
@@ -239,33 +255,14 @@ Music1:     ldy Voice1ctr
             stx Voice1ptr
             rts
 
-@loopmusic: lda Voice1data,x
-            and #unmask
-            sta Loop1ctr
-            inx
-            stx Voice1ptr
-            stx Loop1str
-            jmp @playnext
-
-@endmloop:  ldy Loop1ctr
-            dey
-            sty Loop1ctr
-            beq @exitloop
-            ldx Loop1str
-            stx Voice1ptr
-            jmp @playnext
-@exitloop:  inx
-            stx Voice1ptr
-            jmp @playnext
-
 @note:      lda Voice1data,x
-            and #unmask
-            clc
-            adc #128
-            adc VoiceBase
-            sta VOICE1
-            lda Voice1drt
-            sta Voice1ctr
+            cmp #silence
+            bne @normal
+            lda #$00
+@normal:    sta VOICE1
+            sta VOICE3
+            ldy Voice1drt
+            sty Voice1ctr
             jmp @exitmusic
 
 @duration:  lda Voice1data,x
@@ -278,10 +275,15 @@ Music1:     ldy Voice1ctr
             stx Voice1ptr
             jmp @playnext
 
-@repeat:    ldx #$FF            ; That will overflow to 0 at the next inx
-            jmp @exitmusic
+@repeat:    ldx #0
+            stx Voice1ptr
+            stx Voice2ptr
+            stx Voice2ctr
+            stx Voice1ctr
+            rts
 
-; Music driver for the second voice. Very similar to voice 1.
+
+; Music driver for voice 2. It should be called every IRQ to handle music
 
 Music2:     ldy Voice2ctr
             beq @playnext
@@ -297,11 +299,7 @@ Music2:     ldy Voice2ctr
             lda Voice2data,x
             cmp #repeatm
             beq @repeat
-            cmp #endloop
-            beq @endmloop
             and #maskcode
-            cmp #loopcode
-            beq @loopmusic
             cmp #notecode
             beq @note
             cmp #duracode
@@ -311,33 +309,13 @@ Music2:     ldy Voice2ctr
             stx Voice2ptr
             rts
 
-@loopmusic: lda Voice2data,x
-            and #unmask
-            sta Loop2ctr
-            inx
-            stx Voice2ptr
-            stx Loop2str
-            jmp @playnext
-
-@endmloop:  ldy Loop2ctr
-            dey
-            sty Loop2ctr
-            beq @exitloop
-            ldx Loop2str
-            stx Voice2ptr
-            jmp @playnext
-@exitloop:  inx
-            stx Voice2ptr
-            jmp @playnext
-
 @note:      lda Voice2data,x
-            and #unmask
-            clc
-            adc #128
-            adc VoiceBase
-            sta VOICE2
-            lda Voice2drt
-            sta Voice2ctr
+            cmp #silence
+            bne @normal
+            lda #$00
+@normal:    sta VOICE2
+            ldy Voice2drt
+            sty Voice2ctr
             jmp @exitmusic
 
 @duration:  lda Voice2data,x
@@ -350,9 +328,10 @@ Music2:     ldy Voice2ctr
             stx Voice2ptr
             jmp @playnext
 
-@repeat:    ldx #$FF            ; That will overflow to 0 at the next inx
-            jmp @exitmusic
-
+@repeat:    ldx #0
+            stx Voice1ptr
+            stx Voice2ptr
+            rts
 
 ; Draw the character in A in the position given by the X and Y registers
 ; Since the screen is 16 characters wide, we need to shift the Y register
@@ -363,16 +342,14 @@ Music2:     ldy Voice2ctr
 DrawChar:   sta CharCode
             stx PosX
             sty PosY
-            cpx #16         ; Check if the X value is out of range
-            bcs @exit       ; Exit if X greater than 16 (no of columns)
-            cpy #31         ; Check if the Y value is out of range
-            bcs @exit       ; Exit if Y greater than 31 (no of rows)
             tya
             asl             ; 16 columns per line. Multiply!
             asl
             asl
             asl             ; If it shifts an 1 in the carry, this means that
-            bcc @tophalf    ; we need to write in the bottom-half of the screen
+            lda secs
+            cmp #$01
+            bne @tophalf    ; we need to write in the bottom-half of the screen
             clc
             adc PosX
             tay
@@ -405,12 +382,13 @@ PrintStr:   sty PosY
             inx
             jmp @loop
 @exit:      ldy PosY
+            rts
 
 ; Clear the screen. This maybe is too slow to be used in an interrupt handler.
 ; Draw everywhere the character contained in the A register. Employs X.
 
 CLS:
-            size=16*31/4+1
+            size=22*23/4+1
             ldx #size
 @loop:      sta MEMSCR-1,X          ; A (small) degree of loop unrolling avoids
             sta MEMSCR+size-1,X     ; to mess with a 16-bit loop.
@@ -452,14 +430,12 @@ PaintColour:
 ;            duration in 1/60's of seconds
 ;         it should be followed by a byte giving the duration of the silence in
 ;         the note
-loopcode = %10000000
-notecode = %01000000
-silence  = %01111111
+notecode = %10000000
+silence  = %11111110
 duracode = %00000000
-endloop  = %11000000
 repeatm  = %11111111
-maskcode = %11000000
-unmask   = %00111111
+maskcode = %10000000
+unmask   = %01111111
 
 VoiceBase:  .byte $00
 
@@ -477,47 +453,323 @@ Loop2str:   .byte $00
 Voice2drt:  .byte $00
 Voice2nod:  .byte $00
 
-Voice1data: .byte duracode + 30, 25
-            .byte loopcode + 2
-            ; a simple diatonic scale
-            .byte notecode + 0, notecode + 2, notecode + 4, notecode + 5
-            .byte notecode + 7, notecode + 9, notecode + 11, notecode + 12
-            .byte endloop
+quaver = 31
+quaverd = 20
+
+semiquaver = 15
+semiquaverd = 10
+
+do0=128
+dod0=134
+re0=141
+red0=147
+mi0=153
+fa0=159
+fad0=164
+sol0=170
+sold0=174
+la0=179
+lad0=183
+si0=187
+do1=191
+dod1=195
+re1=198
+red1=201
+mi1=204
+fa1=207
+fad1=210
+sol1=213
+sold1=215
+la1=217
+lad1=219
+si1=221
+do2=223
+dod2=225
+re2=227
+red2=229
+mi2=230
+fa2=231
+fad2=232        ; Quite out of tune on higher pitches
+sol2=234        ; ...
+sold2=235       ;
+la2=236
+lad2=237
+si2=238
+do3=239
+dod3=240
+; Music data for J.S. Bach, Fantasia of Partita 3, BWV 827
+
+Voice1data: ; Measures 1 - 6
+            .byte duracode + semiquaver, semiquaverd
+            .byte silence,la1,si1,sold1,la1,do2,re1,si1,mi1,re1,do1,si0
+            .byte duracode + quaver, quaverd
+            .byte do1,mi1,la1,la1,sold1,si1
+            .byte duracode + semiquaver, semiquaverd
+            .byte si1,la1,sold1,la1,si1,do2,re2,fa2,si1,fa2,mi2,re2
             
-            .byte loopcode + 2
-            ; a simple diatonic scale
-            .byte notecode + 24, notecode + 26, notecode + 28, notecode + 29
-            .byte notecode + 31, notecode + 33, notecode + 35, notecode + 36
-            .byte endloop
+            ; Measures 7 - 12
+            .byte duracode + quaver, quaverd
+            .byte do2
+            .byte duracode + semiquaver, semiquaverd
+            .byte si1, la1
+            .byte duracode + quaver, quaverd
+            .byte fa2,fa2
+            .byte duracode + semiquaver, semiquaverd
+            .byte mi2,re2
+            .byte duracode + quaver, quaverd
+            .byte sol2
+            .byte duracode + semiquaver, semiquaverd
+            .byte mi2,do2,re2,si1,do2,mi2
+            .byte sol2,si1,do2,la1,si1,re2
+            .byte sol2,la1,si1,sold1,la1,do2
+            .byte duracode + quaver, quaverd
+            .byte fa2,re2,sol1
             
+            ; Measures 13 - 18
+            .byte mi2,do2,fa1
+            .byte duracode + semiquaver, semiquaverd
+            .byte re2,mi1,fa1,re1,mi1,sold1
+            .byte duracode + quaver, quaverd
+            .byte do2,si1,la1
+            .byte duracode + semiquaver, semiquaverd
+            .byte sold1,la1,si1,fa1,mi1,re1
+            .byte do1,mi1,fa1,re1,mi1,la1
+            .byte si1,mi1,fa1,re1,mi1,si1
+            
+            ; Measures 19-24
+            .byte do2,mi1,fa1,re1,mi1,do2
+            .byte si1,la1,sold1,si1
+            .byte duracode +quaver, quaverd, mi1
+            .byte duracode + semiquaver, semiquaverd
+            .byte silence,mi2,fa2,re2,mi2,do2
+            .byte si1,mi2,fa2,re2,mi2,si1
+            .byte la1,mi2,fa2,re2,mi2,la1
+            .byte sol1,si1,mi1,do2,re2,si1
+            
+            ; Measures 25-30
+            .byte do2,mi2,la1,sold1,la1,do2
+            .byte fad1,la1,re1,si1,do2,la1
+            .byte si1,re2,sol1,fad1,sol1,si1
+            .byte mi1,sol1,do1,la1,si1,sol1
+            .byte la1,do2,fad1,mi1,fad1,la1
+            .byte red1,fad1,si0,sol1,la1,fad1
+            
+            ; Measures 31-36
+            .byte duracode +quaver, quaverd
+            .byte sol1,si1,mi2,mi2,red2,fad2
+            .byte duracode +semiquaver, semiquaverd
+            .byte fad2,mi2,fad2,red2,mi2,sol2
+            .byte la1,fad2,si1,la1,sol1,fad1
+            .byte duracode +quaver, quaverd
+            .byte sol1
+            .byte duracode +semiquaver, semiquaverd
+            .byte fad1,mi1
+            .byte duracode +quaver, quaverd
+            .byte do2
+            .byte do2
+            .byte duracode +semiquaver, semiquaverd
+            .byte si1,la1
+            .byte duracode +quaver, quaverd
+            .byte re2
+            
+            ; Measures 37 - 42
+            .byte duracode +semiquaver, semiquaverd
+            .byte si1,do2,re2,mi2,fad2,sol2
+            .byte la2,do3,fad2,do3,si2,la2
+            .byte duracode +quaver, quaverd
+            .byte sol2, si2,mi2,do2,la2,re2
+            .byte si1,sol2,do2
             .byte repeatm
-
-Voice2data: .byte duracode + 15, 12
-            .byte loopcode + 8
-            ; a simple diatonic scale
-            .byte notecode + 40, silence
-            .byte notecode + 48, silence
-            .byte endloop
-
-            .byte loopcode + 16
-            ; a simple diatonic scale
-            .byte notecode + 32, silence
-            .byte endloop
             
-            .byte repeatm
+            ; Had to truncate here, because of the 256 events limit
+ ;            
+;             .byte duracode +semiquaver, semiquaverd
+;             .byte la1,fad1,sol1,mi1,fad1,la1
+;             
+;             ; Measures 43 - 48
+;             .byte re2,mi1,fad1,red1,mi1,sol1
+;             .byte do2,red1,mi1,dod1,red1,fad1
+;             .byte si1,mi1,la1,si0,do1,la0
+;             .byte si0,red1,fad1,la1,sol1,fad1
+;             .byte sol1,si1,do2,la1,si1,mi2
+;             .byte fad2,si1,do1,la1,si1,fad2
+;             
+;             ; Measures 49 - 54
+;             .byte sol2,si1,do2,la1,si1,sol2
+;             .byte fad2,mi2,red1,fad2
+;             .byte duracode +quaver, quaverd
+;             .byte si1,si1
+;             .byte duracode +semiquaver, semiquaverd
+;             .byte mi2,fad2
+;             .byte duracode +quaver, quaverd
+;             .byte sol2
+;             .byte la1
+;             .byte duracode +semiquaver, semiquaverd
+;             .byte sol1,fad1,sol1,la1
+;             .byte si1,sol1,la1,fad1,sol1,mi2
+;             .byte mi1,mi1,mi1,mi1,mi1,mi1
+; 
+;             .byte repeatm
 
-            .charmap 'A',(1+$80)
+Voice2data: ; Measures 1 - 6
+            .byte duracode +quaver, quaverd
+            .byte la1,179,la1,la1,sold1,mi1
+            .byte duracode+semiquaver,semiquaverd
+            .byte silence, la1,si1,sold1,la1,do2,re1,si1,mi1,re1,do1,si0
+            .byte duracode +quaver, quaverd
+            .byte do1,mi1,la1,la1,sold1,si1
+            ; Measures 7 - 12
+            .byte duracode+semiquaver,semiquaverd
+            .byte si1,la1,sold1,la1,si1,do2
+            .byte re2,fa2,si1,fa2,mi2,re2
+            .byte duracode +quaver, quaverd
+            .byte do2,mi2,la1
+            .byte fa2,re2,sol1
+            .byte mi2,do2,207
+            .byte duracode+semiquaver,semiquaverd
+            .byte re2,si1,do2,la1,si1,re2
             
-            ;       "                      "
-TitleGame:  .asciiz "    ALIEN INVASION"
-Credits:    .asciiz "   C. 2018 D. BUCCI"
-L1:         .asciiz "  TARGETS:"
-L2:         .byte " ", ALIEN1,ALIEN2,ALIEN3,ALIEN4, " 10 pt",0
-L3:         .byte " ", MOTHER1,MOTHER2,MOTHER3,    "  50 pt",0
+            ; Measures 13-18
+            .byte sol2,la1,si1,sol1,la1,do2
+            .byte fa2, sold1,la1,fad1,sold1,si1
+            .byte mi2,la1,re2,mi1,fa1,re1
+            .byte duracode +quaver, quaverd
+            .byte mi1,sold1,mi1
+            .byte la1,la0,la1
+            .byte duracode+semiquaver,semiquaverd
+            .byte la1,sold1,la1,fad1,sold1,mi1
+            
+            ; Measures 19 - 24
+            .byte la1,sold1,la1,si1,do2,re2
+            .byte mi2,fa2,mi2,re2,do2,si1
+            .byte duracode +quaver, quaverd
+            .byte la1,la0,la1
+            .byte sol1,sol0,sol1
+            .byte fa1,fa0,fa1
+            .byte mi1,sold0,mi0
+            
+            ; Measures 25 - 30
+            .byte la0,si0,do1
+            .byte re1,fad1,re1
+            .byte sol1,la1,si1
+            .byte do2,mi1,do1
+            .byte fad1,sol1,la1
+            .byte si1,red1,si0
 
+            ; Measures 31 - 36
+            .byte duracode +semiquaver, semiquaverd
+            .byte mi1,mi2,fad2,red2,mi2,sol2
+            .byte la1,fad2,si1,la1,sol1,fad1
+            .byte duracode +quaver, quaverd
+            .byte sol1,si0,mi1
+            .byte mi1,red1,fad1
+            .byte duracode +semiquaver, semiquaverd
+            .byte fad1,mi1,red1,mi1,fad1,sol1
+            .byte la1,do2,fad1,do2,si1,la1
+            
+            ; Measures 37 - 42
+            .byte duracode +quaver, quaverd
+            .byte sol1
+            .byte duracode +semiquaver, semiquaverd
+            .byte fad1,mi1
+            .byte duracode +quaver, quaverd
+            .byte do2,do2
+            .byte duracode +semiquaver, semiquaverd
+            .byte si1,la1
+            .byte duracode +quaver, quaverd
+            .byte re2
+            .byte duracode +semiquaver, semiquaverd
+            .byte si1,sol1,la1,fad1,sol1,si1
+            .byte mi2,fad1,sol1,mi1,fad1,la1
+            .byte re2,mi1,fad1,re1,mi1,sol1
+            .byte duracode +quaver, quaverd
+            .byte do2,la1,re1
+            ; 
+;             ; Measures 43 - 48
+;             .byte si1,sol1,do1
+;             .byte duracode +semiquaver, semiquaverd
+;             .byte la1,si0,do1,la0,si1,red1
+;             .byte duracode +quaver, quaverd
+;             .byte sol1,fad1,mi1,red1,si1,red1
+;             .byte mi1,mi0,mi1
+;             .byte duracode +semiquaver, semiquaverd
+;             .byte mi1,red1,mi1,dod1,red1,si1
+;             
+;             ; Measures 49 - 54
+;             .byte duracode +quaver, quaverd
+;             .byte mi1,mi0,mi1
+;             .byte duracode +semiquaver, semiquaverd
+;             .byte si0,do1,si0,la0,sol0,fad0
+;             .byte sol0,si0,do1,la0,si0,sol0
+;             .byte fad0,si0,do1,la0,si0,fad0
+;             .byte mi0,si0,do1,la0,si0,mi0
+;             .byte red0,fad0,si0,sol0,la0,fad0
+;             
+            .byte la1,la1,la1,la1
 
+FileName:   .byte "alien-inv"
+FileNameLen = 9
+            ;     "                      "
+TitleGame:  .byte "                      "
+            .byte "                      "
+            .byte "                      "
+            .byte "    ",('A'-'@'),('L'-'@'),('I'-'@')
+            .byte ('E'-'@'),('N'-'@')," ",('I'-'@')
+            .byte ('N'-'@'),('V'-'@'),('A'-'@'),('S'-'@')
+            .byte ('I'-'@'),('O'-'@'),('N'-'@')
+            .byte "    "
+            .byte "                      "
+            .byte "   ",('C'-'@'),(46+$80)," ", (50+$80),(48+$80),(49+$80)
+            .byte 56+$80," ",('D'-'@'),(46+$80)," ", ('B'-'@'), ('U'-'@')
+            .byte ('C'-'@'),('C'-'@'),('I'-'@'),"   ",0
+
+ScoreDesc:  .byte "                      "
+            .byte "                      "
+            .byte "    ", ALIEN2," ",ALIEN3," ",ALIEN4, " ",(49+$80),(48+$80)
+            .byte " ", ('P'-'@'),('T'-'@'),"       "
+            .byte "                      "
+            .byte "     ", MOTHER1,MOTHER2,MOTHER3,"  ",(53+$80),(48+$80)
+            .byte " ",('P'-'@'),('T'-'@'), "        "
+            .byte "                      ",0
+
+Keys:       .byte  "          ",('Z'-'@'), "     ",  ('L'-'@'), ('E'-'@') 
+            .byte ('F'-'@'), ('T'-'@'),"          "
+            .byte "  ", ('X'-'@'), "     ",  ('R'-'@'), ('I'-'@'), ('G'-'@')
+            .byte  ('H'-'@'),('T'-'@'),"           "
+            .byte ('S'-'@'),('P'-'@'), ('A'-'@'), ('C'-'@'), ('E'-'@')," "
+            .byte ('F'-'@'), ('I'-'@'), ('R'-'@'), ('E'-'@'),"            "
+            .byte "                      "
+            .byte  ('O'-'@'),  ('R'-'@')," ", ('J'-'@'), ('O'-'@')
+            .byte  ('Y'-'@'),('S'-'@'),('T'-'@'),('I'-'@'), ('C'-'@')
+            .byte ('K'-'@')
+            .byte "         "
+            .byte "                      "
+            .byte "  "
+            .byte  ('M'-'@'), " ", ('T'-'@'),('O'-'@'), ('G'-'@'), ('G'-'@')
+            .byte  ('L'-'@'), ('E'-'@'), " ", ('M'-'@'), ('U'-'@'), ('S'-'@')
+            .byte  ('I'-'@'), ('C'-'@'), "        "
+            .byte  ('R'-'@'),('E'-'@'),('T'-'@'),('U'-'@'),('R'-'@'),('N'-'@')
+            .byte " ", ('R'-'@'),('E'-'@'), ('S'-'@'),('T'-'@'),('A'-'@')
+            .byte ('R'-'@'), ('T'-'@'),"     "
+            .byte 0
+
+LoadStr:    .byte ('l'-'@'),('o'-'@'),('a'-'@'),('d'-'@'),34,('a'-'@')
+            .byte ('l'-'@'),('i'-'@'),('e'-'@'),('n'-'@'),45
+            .byte ('i'-'@'),('n'-'@'),('v'-'@'),34,44,56
+            .byte "                      "           
+            .byte "                      "
+            .byte "                      "
+            .byte "                      "
+            .byte "                      "
+            .byte "    " 
+RunStr:     .byte ('r'-'@'),('u'-'@'),('n'-'@'),0
+
+LoadCmdLen=3
+LoadCmd:    .byte 17,13,13
 
 DefChars:
+
+
             ALIEN1 = 0
             .byte %00111100     ; Alien #1, associated to ch. 0 (normally @)
             .byte %01111110
