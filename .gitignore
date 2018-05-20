@@ -1,2 +1,6 @@
 .DS_Store
- alien-inv.o
+alien-inv.o
+alien-intro
+alien-intro.o
+alien-inv
+

@@ -140,6 +140,7 @@ main:
             sta GEN2
             sta GEN3
             sta VOLUME
+            sta 646         ; Change current colour to black
             sei             ; Configure the interrupt handler
             lda #<$EABF
             sta $0314
@@ -152,12 +153,45 @@ main:
             ldy #$0
             lda #$0
             stx secs
-            lda #<LoadStr
+            lda #<LoadStr       ; Write a load command
             sta LAB_01
             lda #>LoadStr
             sta LAB_02
             lda #BLACK
             sta Colour
+            jsr PrintStr
+            lda 186             ; Get the last opened device
+            clc
+            cmp #01
+            beq @cassette
+            cmp #08
+            beq @disk8
+            cmp #09
+            beq @disk9
+            cmp #10
+            beq @disk10
+            cmp #11
+            beq @disk11
+            
+@loadc:     jsr DrawChar        ; Complete the load command
+            inx
+            lda #<EndL
+            sta LAB_01
+            lda #>EndL
+            sta LAB_02
+            lda #WHITE
+            sta Colour
+            jsr PrintStr
+            lda #<Loading
+            sta LAB_01
+            lda #>Loading
+            sta LAB_02
+            lda #WHITE
+            sta Colour
+            lda #01
+            sta secs
+            ldx #30
+            ldy #0
             jsr PrintStr
             ldx #0
             ldy #0
@@ -171,6 +205,25 @@ main:
             lda #LoadCmdLen
             sta 198
             rts
+
+@cassette:
+@disk8:
+@disk9:     clc
+            adc #48
+            jmp @loadc
+
+@disk10:    lda #49
+            jsr DrawChar
+            inx
+            lda #48
+            jmp @loadc
+
+@disk11:    lda #49
+            jsr DrawChar
+            inx
+            lda #49
+            jmp @loadc
+
 
 ; INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT - INIT
 ;
@@ -497,6 +550,7 @@ lad2=237
 si2=238
 do3=239
 dod3=240
+
 ; Music data for J.S. Bach, Fantasia of Partita 3, BWV 827
 
 Voice1data: ; Measures 1 - 6
@@ -732,11 +786,14 @@ ScoreDesc:  .byte "                      "
             .byte " ",('P'-'@'),('T'-'@'), "        "
             .byte "                      ",0
 
-Keys:       .byte  "          ",('Z'-'@'), "     ",  ('L'-'@'), ('E'-'@') 
-            .byte ('F'-'@'), ('T'-'@'),"          "
-            .byte "  ", ('X'-'@'), "     ",  ('R'-'@'), ('I'-'@'), ('G'-'@')
-            .byte  ('H'-'@'),('T'-'@'),"           "
-            .byte ('S'-'@'),('P'-'@'), ('A'-'@'), ('C'-'@'), ('E'-'@')," "
+Keys:       .byte  "            ",27+128,('Z'-'@'),29+128, "   ",  ('L'-'@')
+            .byte ('E'-'@') 
+            .byte ('F'-'@'), ('T'-'@'),"        "
+            .byte "    ", 27+128,('X'-'@'),29+128, "   ",  ('R'-'@'), ('I'-'@')
+            .byte ('G'-'@')
+            .byte  ('H'-'@'),('T'-'@'),"         "
+            .byte 27+128,('S'-'@'),('P'-'@'), ('A'-'@'), ('C'-'@'), ('E'-'@')
+            .byte 29+128," "
             .byte ('F'-'@'), ('I'-'@'), ('R'-'@'), ('E'-'@'),"            "
             .byte "                      "
             .byte  ('O'-'@'),  ('R'-'@')," ", ('J'-'@'), ('O'-'@')
@@ -745,24 +802,29 @@ Keys:       .byte  "          ",('Z'-'@'), "     ",  ('L'-'@'), ('E'-'@')
             .byte "         "
             .byte "                      "
             .byte "  "
-            .byte  ('M'-'@'), " ", ('T'-'@'),('O'-'@'), ('G'-'@'), ('G'-'@')
+            .byte  27+128,('M'-'@'), 29+128," ", ('T'-'@'),('O'-'@'), ('G'-'@')
+            .byte ('G'-'@')
             .byte  ('L'-'@'), ('E'-'@'), " ", ('M'-'@'), ('U'-'@'), ('S'-'@')
-            .byte  ('I'-'@'), ('C'-'@'), "        "
-            .byte  ('R'-'@'),('E'-'@'),('T'-'@'),('U'-'@'),('R'-'@'),('N'-'@')
+            .byte  ('I'-'@'), ('C'-'@'), "   "
+            .byte  27+128,('R'-'@'),('E'-'@'),('T'-'@'),('U'-'@'),('R'-'@')
+            .byte ('N'-'@'),29+128
             .byte " ", ('R'-'@'),('E'-'@'), ('S'-'@'),('T'-'@'),('A'-'@')
-            .byte ('R'-'@'), ('T'-'@'),"     "
+            .byte ('R'-'@'), ('T'-'@'),"   "
             .byte 0
 
 LoadStr:    .byte ('l'-'@'),('o'-'@'),('a'-'@'),('d'-'@'),34,('a'-'@')
             .byte ('l'-'@'),('i'-'@'),('e'-'@'),('n'-'@'),45
-            .byte ('i'-'@'),('n'-'@'),('v'-'@'),34,44,56
-            .byte "                      "           
+            .byte ('i'-'@'),('n'-'@'),('v'-'@'),34,44,0
+            
+EndL:       .byte "                      "           
             .byte "                      "
             .byte "                      "
             .byte "                      "
             .byte "                      "
             .byte "    " 
 RunStr:     .byte ('r'-'@'),('u'-'@'),('n'-'@'),0
+Loading:    .byte ('L'-'@'),('O'-'@'),('A'-'@'),('D'-'@'),('I'-'@')
+            .byte ('N'-'@'),('G'-'@'),0
 
 LoadCmdLen=3
 LoadCmd:    .byte 17,13,13
