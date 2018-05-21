@@ -147,9 +147,12 @@ main:
             lda #>$EABF
             sta $0315
             cli
-            lda #32
-            jsr CLS
-            ldx #44
+            lda #8
+            sta 36879
+            lda #240
+            sta 36869
+            jsr $E55F           ; Clear the screen and home cursor
+            ldx #21
             ldy #$0
             lda #$0
             stx secs
@@ -193,9 +196,6 @@ main:
             ldx #30
             ldy #0
             jsr PrintStr
-            ldx #0
-            ldy #0
-            jsr 65520
             ldy #0
 @loop:      lda LoadCmd,Y       ; Write in the keyboard buffer
             sta 631,Y
@@ -250,13 +250,19 @@ Init:
             cli
             rts
 
-; Copy the graphic chars. They are subjected to be changed during the pixel-by
-; pixel movement, so that routine gives only the initial situation.
+; Copy the graphic chars.
 
 MovCh:
             ldx #(LASTCH+1)*8+1
 @loop:      lda DefChars-1,x
             sta GRCHARS1-1,x
+            dex
+            bne @loop
+
+ClearSpc:   lda #$00
+            ldx #8
+@loop:      lda #$00
+            sta GRCHARS1-1+32*8,x
             dex
             bne @loop
             rts
@@ -812,7 +818,7 @@ Keys:       .byte  "            ",27+128,('Z'-'@'),29+128, "   ",  ('L'-'@')
             .byte ('R'-'@'), ('T'-'@'),"   "
             .byte 0
 
-LoadStr:    .byte ('l'-'@'),('o'-'@'),('a'-'@'),('d'-'@'),34,('a'-'@')
+LoadStr:    .byte " ",('l'-'@'),('o'-'@'),('a'-'@'),('d'-'@'),34,('a'-'@')
             .byte ('l'-'@'),('i'-'@'),('e'-'@'),('n'-'@'),45
             .byte ('i'-'@'),('n'-'@'),('v'-'@'),34,44,0
             
@@ -821,13 +827,13 @@ EndL:       .byte "                      "
             .byte "                      "
             .byte "                      "
             .byte "                      "
-            .byte "    " 
+            .byte "     " 
 RunStr:     .byte ('r'-'@'),('u'-'@'),('n'-'@'),0
 Loading:    .byte ('L'-'@'),('O'-'@'),('A'-'@'),('D'-'@'),('I'-'@')
             .byte ('N'-'@'),('G'-'@'),0
 
-LoadCmdLen=3
-LoadCmd:    .byte 17,13,13
+LoadCmdLen=5
+LoadCmd:    .byte 131,13,13
 
 DefChars:
 
