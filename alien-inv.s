@@ -77,6 +77,13 @@
         LAB_08 = $08
         LAB_09 = $09
         LAB_0A = $0A
+        LAB_0B = $0B
+
+        SPRITECH = $0C      ; Pointer to the group of 4 ch. for a sprite (word)
+        CHRPTR    = $0E     ; Pointer to the original ch. in a sprite (word)
+        SpriteX   = $10     ; X position (offset in a char) of a sprite (byte)
+        SpriteY   = $11     ; Y position (offset in a char) of a sprite (byte)
+        CharShr   = $12     ; Employed in LoadSprite
 
         CharCode = LAB_03   ; Employed in DrawChar
         PosX = LAB_04
@@ -490,7 +497,7 @@ IrqHandler: pha
             lda Direction   ; Increment or decrement the X position,
             and #$01        ; depending on the Direction value
             beq @negative
-@positive:  inc AlienPosX   ; The postion should be increased
+@positive:  inc AlienPosX   ; The position should be increased
             lda AlienMaxX   ; Check if the direction should be reversed
             cmp #14
             bcc @cont
@@ -531,6 +538,9 @@ IrqHandler: pha
             jsr MotherSh
 @exitirq:   jsr Music1
             jsr Music2
+
+            jsr testsprite
+
             pla             ; Restore registers
             tay
             pla
@@ -1308,6 +1318,120 @@ DrawChar:   sta CharCode
 @exit:      ldy PosY
             rts
 
+; Put a "sprite", that is a 8x8 cell in a 2x2 character position.
+; A contains the character code. It should be less than 32.
+; The 4 characters are disposed as follows:
+;
+;    AC
+;    BD
+;
+; Characters are redefined starting from address contained in SPRITECH
+; X the horizontal position in pixels
+; Y the vertical position in pixels
+
+LoadSprite: sta CharCode        ; Save the character code and X, Y pos.
+            stx SpriteX
+            sty SpriteY
+            lda SPRITECH        ; Calculate the vert. offset in the 4-ch sprite
+            adc SpriteY
+            sta SPRITECH
+            bcc @normal         ; Correct if page change
+            ldy SPRITECH+1
+            iny
+            sty SPRITECH+1
+@normal:    lda #<GRCHARS1      ; Charge the address of the ch. gen in CHARPTR
+            sta CHRPTR
+            lda #>GRCHARS1
+            sta CHRPTR+1
+            lda CharCode        ; Charge the ch. code to be used
+            asl                 ; Multiply it times 8
+            asl
+            asl
+            adc CHRPTR          ; Add to the CHRPTR (to get address of the ch.)
+            sta CHRPTR
+            bcc @normal1        ; Correct if page change
+            ldy CHRPTR+1
+            iny
+            sty CHRPTR+1
+@normal1:   ldy #0              ; Copy 8 bytes
+@loop1:     lda #0
+            sta CharShr
+            lda (CHRPTR),y      ; Charge source
+            ldx SpriteX
+            clc
+@loop2:     lsr
+            ror CharShr
+            dex
+            bne @loop2
+
+            ora (SPRITECH),y    ; OR with current sprite data
+            sta (SPRITECH),y    ; Save
+            tya
+            pha
+            adc #16
+            tay
+            lda CharShr
+            ora (SPRITECH),y    ; OR with current sprite data
+            sta (SPRITECH),y    ; Save
+            pla
+            tay
+            iny
+            cpy #08
+            bne @loop1
+            rts
+
+; Clear the contents of a "sprite".
+ClearSprite:
+            ldy #0
+            lda #0              ; Use #(128+1) for test
+@loop:      sta (SPRITECH),y
+            iny
+            cpy #32
+            bne @loop
+            rts
+
+; A basic test showing a "sprite"
+testsprite: lda #<(GRCHARS1+(LASTCH+1)*8)
+            sta SPRITECH
+            lda #>(GRCHARS1+(LASTCH+1)*8)
+            sta SPRITECH+1
+            jsr ClearSprite
+
+            ;lda AlienPosX
+            ;and #1
+            ;tax
+            lda AlienPosY
+            and #7
+            tay
+            ldx #1
+            ;ldy #4
+            lda #ALIEN3
+            jsr LoadSprite
+            
+            lda #MAGENTA
+            sta Colour
+
+            lda #(LASTCH+1)
+            ldx #8
+            ldy #15
+            jsr DrawChar
+            
+            lda #(LASTCH+2)
+            ldx #8
+            ldy #16
+            jsr DrawChar
+            
+            lda #(LASTCH+3)
+            ldx #9
+            ldy #15
+            jsr DrawChar
+            
+            lda #(LASTCH+4)
+            ldx #9
+            ldy #16
+            jsr DrawChar
+            rts
+
 ; Print a string (null terminated) whose address is contained in LAB_01 and
 ; LAB_02 at the position given by X and Y pointers
 
@@ -1486,13 +1610,13 @@ AliensR3:   .byte $FF           ; Same for row 3 (temporary)
 AlienCode1: .byte $00           ; Character for alien row 1
 AlienCode2: .byte $00           ; Character for alien row 2
 AlienCode3: .byte $00           ; Character for alien row 3
-AlienPosX:  .byte $00           ; Horisontal position of aliens (in pixels)
+AlienPosX:  .byte $00           ; Horizontal position of aliens (in pixels)
 AlienMaxX:  .byte $00
 AlienMinX:  .byte $00
 AlienPosY:  .byte $00           ; Vertical position of aliens (in pixels)
 AlienCurrY: .byte $00           ; Vertical position of alien being drawn
 Direction:  .byte $00           ; The first bit indicates aliens' X direction
-CannonPos:  .byte $8*8          ; Horisontal position of the cannon (in pixels)
+CannonPos:  .byte $8*8          ; Horizontal position of the cannon (in pixels)
 OldCannonP: .byte $00           ; Old position of the cannon
 Win:        .byte $00           ; If 1, the level is won. If $FF, game over
 Score:      .word $0000         ; Current score (divided by 10)
