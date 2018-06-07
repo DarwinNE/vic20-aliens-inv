@@ -1,6 +1,6 @@
 ;         V I C   A L I E N - I N V A D E R S
 ;
-;             by Davide Bucci, April-May 2018
+;             by Davide Bucci, April-June 2018
 ;
 ; This program is a Space-Invaders clone that runs on an unexpanded VIC-20
 ;
@@ -84,6 +84,9 @@
         SpriteX   = $10     ; X position (offset in a char) of a sprite (byte)
         SpriteY   = $11     ; Y position (offset in a char) of a sprite (byte)
         CharShr   = $12     ; Employed in LoadSprite
+        PixShX    = $13     ; Shift in pixels from the character grid
+        PixPosX   = $14     ; Position in characters
+        PixShY    = $15     ; Shift in pixels from the character grid
 
         CharCode = LAB_03   ; Employed in DrawChar
         PosX = LAB_04
@@ -97,7 +100,7 @@
         INITVALC=$ede4
 
 ; VIC-chip addresses
-        VICSCRHO = $9000    ; Horisontal position of the screen
+        VICSCRHO = $9000    ; Horizontal position of the screen
         VICSCRVE = $9001    ; Vertical position of the screen
         VICCOLNC = $9002    ; Screen width in columns and video memory addr.
         VICROWNC = $9003    ; Screen height, 8x8 or 8x16 chars, scan line addr.
@@ -227,7 +230,7 @@ CannonShoot:
 Init:
             lda #$80        ; Autorepeat on on the keyboard
             sta REPEATKE
-            lda #$08        ; Define screen colour and background (black)
+            lda #$09        ; Define screen colour and background (black)
             sta VICCOLOR
             lda #$90        ; Set a 16 column-wide screen
             sta VICCOLNC
@@ -285,6 +288,7 @@ StartGame:
             lda #$FF
             sta OldCannonP
             lda #$00
+            sta Direction
             sta Win
             sta IrqCn
             sta NOISE
@@ -415,7 +419,8 @@ draw1l:
             jsr DrawChar
             rts
 
-UpdateHiSc: lda Score       ; Update the high score
+UpdateHiSc: rts                     ; DEBUG CODE ONLY --------------------------
+            lda Score       ; Update the high score
             sta HiScore
             lda Score+1
             sta HiScore+1
@@ -472,17 +477,13 @@ IrqHandler: pha
             beq @contirq
             jmp @exitirq
 @contirq:   lda IrqCn
-            cmp Period      ; Exercute every PERIOD/60 of second
+            cmp Period      ; Execute every PERIOD/60 of second
             bne @cont3
             lda #$0
             sta IrqCn
             sta NOISE
             jsr draw1l
-            lda #EMPTY      ; Erase aliens in the current position
-            sta AlienCode1
-            sta AlienCode2
-            sta AlienCode3
-            jsr DrawAliens  ; Redraw aliens
+            jsr EraseAliens  ; Redraw aliens
             jsr FallBombs   ; Make bombs fall. Aliens will be on top of bombs
             lda Win         ; If Win !=0 stop the game
             cmp #$00
@@ -495,23 +496,10 @@ IrqHandler: pha
 @nomusic:   sta VoiceBase
             inc AlienPosY   ; Increment the Y position of the aliens
             lda Direction   ; Increment or decrement the X position,
-            and #$01        ; depending on the Direction value
-            beq @negative
+            bne @negative   ; depending on the Direction value
 @positive:  inc AlienPosX   ; The position should be increased
-            lda AlienMaxX   ; Check if the direction should be reversed
-            cmp #14
-            bcc @cont
-            lda Direction   ; Invert the direction
-            eor #$FF
-            sta Direction
             jmp @cont
 @negative:  dec AlienPosX   ; The position should be decreased
-            lda AlienMinX   ; Check if the direction should be reversed
-            cmp #2
-            bcs @cont
-            lda Direction   ; Invert the direction
-            eor #$FF
-            sta Direction
 @cont:      lda AlienPosY   ; Check if the aliens came to bottom of screen
             cmp #28*8
             bne @draw
@@ -523,6 +511,17 @@ IrqHandler: pha
             jmp @normal
 @altaliens: jsr alienst2
 @normal:    jsr DrawAliens
+            lda AlienMaxX   ; Check if the direction should be reversed
+            cmp #15
+            bcc @cont2
+            lda #1
+            sta Direction   ; Invert the direction
+@cont2:     lda AlienMinX   ; Check if the direction should be reversed
+            cmp #1
+            bcs @cont3
+            lda #0
+            sta Direction   ; Invert the direction
+            sta Direction
 @cont3:     lda CannonPos   ; Check if the cannon position has changed
             cmp OldCannonP
             beq @nochange
@@ -539,7 +538,7 @@ IrqHandler: pha
 @exitirq:   jsr Music1
             jsr Music2
 
-            jsr testsprite
+            ;jsr testsprite
 
             pla             ; Restore registers
             tay
@@ -637,6 +636,27 @@ ClearCannon:
             jsr DrawChar
             rts
 
+; Erase aliens
+
+EraseAliens: 
+            lda AlienPosY      ; The position is in pixel, divide by 8
+            lsr                ; to obtain position in characters
+            lsr
+            lsr
+            cmp #1
+            beq @exit
+            tay
+            ldx #16
+            lda #BLACK
+            sta Colour
+            lda #EMPTY
+@loop:      dex
+            jsr DrawChar
+            cpx 0
+            bne @loop
+
+@exit:      rts
+
 ; Draw aliens on the screen. They are several lines with at most 8 aliens
 ; each. The presence of an alien in the first row is given by bits in the
 ; AliensR1 byte. An alien is present at the beginning of the game (or level)
@@ -659,6 +679,24 @@ DrawAliens: lda #$ff
             lsr
             lsr
             sta AlienCurrY
+
+;;;
+            lda AlienPosX
+            and #7
+            sta PixShX
+            lda #<(GRCHARS1+(LASTCH+1)*8)
+            sta SPRITECH
+            lda #>(GRCHARS1+(LASTCH+1)*8)
+            sta SPRITECH+1
+            jsr ClearSprite
+            lda PixShX
+            tax
+            lda AlienPosY
+            and #7
+            tay
+            lda AlienCode1
+            jsr LoadSprite
+
 @loop1:     dex
             ldy AlienCurrY
             lda AliensR1
@@ -677,7 +715,7 @@ DrawAliens: lda #$ff
             clc
             rol
             sta AliensR2
-            bcs @drawAlien1
+            ;bcs @drawAlien1
 @ret2:      dex
             bne @loop2
             inc AlienCurrY
@@ -689,27 +727,31 @@ DrawAliens: lda #$ff
             clc
             rol
             sta AliensR3
-            bcs @drawAlien2
+            ;bcs @drawAlien2
 @ret3:      dex
             bne @loop3
+            lda AlienMaxX           ; DEBUG CODE ONLY --------------------------
+            sta Score               ; DEBUG CODE ONLY --------------------------
+            lda AlienPosX           ; DEBUG CODE ONLY --------------------------
+            sta HiScore             ; DEBUG CODE ONLY --------------------------
             rts
 
 @drawAlien0:
-            lda AlienCode1
+            lda #(LASTCH+1) ; AlienCode1
             sta CharCode
             lda #RED
             jsr DrawAlienG
             jmp @ret1
 
 @drawAlien1:
-            lda AlienCode2
+            lda #(LASTCH+1) ; AlienCode2
             sta CharCode
             lda #CYAN
             jsr DrawAlienG
             jmp @ret2
 
 @drawAlien2:
-            lda AlienCode3
+            lda #(LASTCH+1) ; AlienCode3
             sta CharCode
             lda #GREEN
             jsr DrawAlienG
@@ -721,10 +763,19 @@ DrawAliens: lda #$ff
 ; In CharCode, the alien character code should be written.
 
 DrawAlienG: sta Colour
+            lda AlienPosX
+            and #7
+            sta PixShX
+            lda AlienPosX   ; Calculate the position in characters
+            lsr
+            lsr
+            lsr
+            sta PixPosX
             stx tmp4
+            dex
             txa
             clc
-            adc AlienPosX
+            adc PixPosX
             tax
             cpx AlienMinX   ; Update the minimum and maximum value of positions
             bcs @nomin
@@ -734,6 +785,20 @@ DrawAlienG: sta Colour
             stx AlienMaxX
 @nomax:     lda CharCode
             jsr DrawChar
+            iny
+            clc
+            adc #1
+            jsr DrawChar
+            inx
+            dey
+            clc
+            adc #1
+            jsr DrawChar
+            iny
+            clc
+            adc #1
+            jsr DrawChar
+            dey
             ldx tmp4
             rts
 
@@ -1358,13 +1423,13 @@ LoadSprite: sta CharCode        ; Save the character code and X, Y pos.
             sta CharShr
             lda (CHRPTR),y      ; Charge source
             ldx SpriteX
+            beq @noshift
             clc
 @loop2:     lsr
             ror CharShr
             dex
             bne @loop2
-
-            ora (SPRITECH),y    ; OR with current sprite data
+@noshift:   ora (SPRITECH),y    ; OR with current sprite data
             sta (SPRITECH),y    ; Save
             tya
             pha
@@ -1397,14 +1462,12 @@ testsprite: lda #<(GRCHARS1+(LASTCH+1)*8)
             sta SPRITECH+1
             jsr ClearSprite
 
-            ;lda AlienPosX
-            ;and #1
-            ;tax
+            lda PixShX
+            tax
             lda AlienPosY
             and #7
             tay
-            ldx #1
-            ;ldy #4
+            ;ldx #7
             lda #ALIEN3
             jsr LoadSprite
             
