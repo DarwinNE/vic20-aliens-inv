@@ -37,7 +37,7 @@
 ; Difficulty-related constants
         BOMBPROB = $F0      ; Higher = less bombs falling
         SHIPPROB = $F5      ; Higher = less mother ships
-        PERIODS = 4         ; Initial difficulty (less=faster)
+        PERIODS = 2         ; Initial difficulty (less=faster)
 
 ; General constants
         NMBOMBS = 8         ; Maximum number of bombs falling at the same time
@@ -79,15 +79,6 @@
         LAB_0A = $0A
         LAB_0B = $0B
 
-        SPRITECH = $0C      ; Pointer to the group of 4 ch. for a sprite (word)
-        CHRPTR    = $0E     ; Pointer to the original ch. in a sprite (word)
-        SpriteX   = $10     ; X position (offset in a char) of a sprite (byte)
-        SpriteY   = $11     ; Y position (offset in a char) of a sprite (byte)
-        CharShr   = $12     ; Employed in LoadSprite
-        PixShX    = $13     ; Shift in pixels from the character grid
-        PixPosX   = $14     ; Position in characters
-        PixShY    = $15     ; Shift in pixels from the character grid
-
         CharCode = LAB_03   ; Employed in DrawChar
         PosX = LAB_04
         PosY = LAB_05
@@ -96,6 +87,14 @@
         tmpx = LAB_08
         tmpy = LAB_09
         tmp4 = LAB_0A
+        SPRITECH  = $0C     ; Pointer to the group of 4 ch. for a sprite (word)
+        CHRPTR    = $0E     ; Pointer to the original ch. in a sprite (word)
+        SpriteX   = $10     ; X position (offset in a char) of a sprite (byte)
+        SpriteY   = $11     ; Y position (offset in a char) of a sprite (byte)
+        CharShr   = $12     ; Employed in LoadSprite
+        PixShX    = $13     ; Shift in pixels from the character grid
+        PixPosX   = $14     ; Position in characters
+        PixShY    = $15     ; Shift in pixels from the character grid
 
         INITVALC=$ede4
 
@@ -371,8 +370,7 @@ DrawShield: ldx #1
             jsr DrawChar
             inx
             lda #BLOCKR
-            jsr DrawChar
-            rts
+            jmp DrawChar
 
 draw1l:
             lda Score       ; Load the current score and convert it to BCD
@@ -417,8 +415,7 @@ draw1l:
             lda Res
             jsr PrintBCD
             lda #(48+$80)   ; Write an additional zero
-            jsr DrawChar
-            rts
+            jmp DrawChar
 
 UpdateHiSc: rts                     ; DEBUG CODE ONLY --------------------------
             lda Score       ; Update the high score
@@ -482,7 +479,6 @@ IrqHandler: pha
             lda #$0
             sta IrqCn
             sta NOISE
-            jsr draw1l
             jsr FallBombs   ; Make bombs fall. Aliens will be on top of bombs
             lda Win         ; If Win !=0 stop the game
             bne @exitirq
@@ -507,15 +503,14 @@ IrqHandler: pha
             jsr alienst1
             jmp @normal
 @altaliens: jsr alienst2
-@normal:    jsr DrawAliens
+@normal:    jsr EraseAliens ; Redraw aliens
+            jsr DrawAliens
             lda AlienMaxX   ; Check if the direction should be reversed
             cmp #15
             bmi @cont2
             lda #1
             sta Direction   ; Invert the direction
             inc AlienPosY   ; Increment the Y position of the aliens
-                        jsr EraseAliens  ; Redraw aliens
-
 @cont2:     lda AlienMinX   ; Check if the direction should be reversed
             cmp #1
             bcs @cont3      ; Check for the pixel position too
@@ -524,9 +519,8 @@ IrqHandler: pha
             lda #0
             sta Direction   ; Invert the direction
             inc AlienPosY   ; Increment the Y position of the aliens
-                        jsr EraseAliens  ; Redraw aliens
-
-@cont3:     lda CannonPos   ; Check if the cannon position has changed
+@cont3:     jsr draw1l
+            lda CannonPos   ; Check if the cannon position has changed
             cmp OldCannonP
             beq @nochange
             jsr ClearCannon
@@ -617,8 +611,7 @@ DrawCannon: lda CannonPos
             lda #WHITE          ; Cannon in white
             sta Colour
             lda #CANNON         ; Cannon char
-            jsr DrawChar
-            rts
+            jmp DrawChar
 
 ; Clear the cannon on the screen, at the current position, contained in
 ; OldCannonP (in pixels).
@@ -641,29 +634,26 @@ ClearCannon:
 ; Erase aliens
 
 EraseAliens: 
-            lda AlienPosY      ; The position is in pixel, divide by 8
-            lsr                ; to obtain position in characters
-            lsr
-            lsr
-            cmp #1
-            beq @exit
+            lda AlienPosY
+            and #$F8
+            sec
+            sbc #$08
+            asl
             tay
-            dey
-            lda #BLACK
-            sta Colour
-            lda #EMPTY
             ldx #16
-@loop:      dex
-            jsr DrawChar
-            cpx #0
+            lda #EMPTY
+            bcs bottomp
+@loop:      sta MEMSCR,y
+            iny
+            dex
             bne @loop
-            stx Score               ; DEBUG CODE ONLY --------------------------
-            sty HiScore             ; DEBUG CODE ONLY --------------------------
+            rts
+bottomp:
+@loop:      sta MEMSCR+256,y
             iny
-            jsr DrawChar
-            iny
-            jsr DrawChar
-@exit:      rts
+            dex
+            bne @loop
+            rts
 
 ; Draw aliens on the screen. They are several lines with at most 8 aliens
 ; each. The presence of an alien in the first row is given by bits in the
@@ -675,19 +665,13 @@ DrawAliens: lda #$ff
             sta AlienMinX
             lda #$00
             sta AlienMaxX
-            lda AliensR1s
-            sta AliensR1
-            lda AliensR2s
-            sta AliensR2
-            lda AliensR3s
-            sta AliensR3
             lda AlienPosY      ; The position is in pixel, divide by 8
             lsr                ; to obtain position in characters
             lsr
             lsr
             sta AlienCurrY
-;;;
-            lda AlienPosX
+
+            lda AlienPosX      ; Sprite generating code starts here
             and #7
             sta PixShX
             lda #<(GRCHARS1+(LASTCH+1)*8)
@@ -701,70 +685,53 @@ DrawAliens: lda #$ff
             and #7
             tay
             lda AlienCode1
-            jsr LoadSprite
-            ldx #8*2
-@loop1:     dex
-            ldy AlienCurrY
-            lda AliensR1
-            clc
-            rol
-            sta AliensR1
-            bcs @drawAlien0
-@ret1:      dex
-            bne @loop1
-;             inc AlienCurrY
-;             inc AlienCurrY
-;             ldx #8*2
-; @loop2:     dex
-;             ldy AlienCurrY
-;             lda AliensR2
-;             clc
-;             rol
-;             sta AliensR2
-;             ;bcs @drawAlien1
-; @ret2:      dex
-;             bne @loop2
-;             inc AlienCurrY
-;             inc AlienCurrY
-;             ldx #8*2
-; @loop3:     dex
-;             ldy AlienCurrY
-;             lda AliensR3
-;             clc
-;             rol
-;             sta AliensR3
-;             ;bcs @drawAlien2
-; @ret3:      dex
-;             bne @loop3
-            rts
+            jsr LoadSprite      ; End of sprite gen code
 
-@drawAlien0:
-            lda #(LASTCH+1) ; AlienCode1
+            lda AliensR1s       ; Top line of aliens
+            sta AliensR
+            lda #(LASTCH+1)     ; AlienCode1
             sta CharCode
             lda #RED
+            sta Colour
+            jsr AlienLoop
+
+            inc AlienCurrY      ; Second line of aliens
+            inc AlienCurrY
+            lda #(LASTCH+1)     ; AlienCode1
+            sta CharCode
+            lda #CYAN
+            sta Colour
+            lda AliensR2s
+            sta AliensR
+            jsr AlienLoop
+            
+            inc AlienCurrY      ; Third line of aliens
+            inc AlienCurrY
+            lda #(LASTCH+1)     ; AlienCode1
+            sta CharCode
+            lda #GREEN
+            sta Colour
+            lda AliensR3s
+            sta AliensR
+            jmp AlienLoop
+
+
+AlienLoop:  ldx #8*2
+@loop1:     dex
+            ldy AlienCurrY
+            asl AliensR
+            bcc @ret
             jsr DrawAlienG
-            jmp @ret1
-; 
-; @drawAlien1:
-;             lda #(LASTCH+1) ; AlienCode2
-;             sta CharCode
-;             lda #CYAN
-;             jsr DrawAlienG
-;             jmp @ret2
-; 
-; @drawAlien2:
-;             lda #(LASTCH+1) ; AlienCode3
-;             sta CharCode
-;             lda #GREEN
-;             jsr DrawAlienG
-;             jmp @ret3
+@ret:       dex
+            bne @loop1
+            rts
 
 ; Draw a generic alien routine and update the min/max X positions variables.
 ; A should contain the colour to be used for the aliens.
 ; X and Y contain the position in the screen.
 ; In CharCode, the alien character code should be written.
 
-DrawAlienG: sta Colour
+DrawAlienG: 
             stx tmp4        ; X contains the alien pos. in the line (in ch.)
             lda AlienPosX
             bmi @exit
@@ -1083,10 +1050,7 @@ FallBombs:  lda AliensR1s
             lsr
             sta AlienCurrY      ; This byte contains the current position of
 @loop1:     ldy AlienCurrY      ; aliens.
-            lda AliensR1        ; Shift AliensR1 and check the carry to see
-            clc                 ; which aliens are alive.
-            rol
-            sta AliensR1
+            asl AliensR1
             bcc @ret1
             jsr DropBomb
 @ret1:      dex
@@ -1096,9 +1060,7 @@ FallBombs:  lda AliensR1s
             ldx #NMBOMBS
 @loop2:     ldy AlienCurrY
             lda AliensR2
-            clc
-            rol
-            sta AliensR2
+            asl AliensR2
             bcc @ret2
             jsr DropBomb
 @ret2:      dex
@@ -1346,9 +1308,9 @@ Music1:     ldy Voice1ctr
 
 ; Draw the character in A in the position given by the X and Y registers
 ; Since the screen is 16 characters wide, we need to shift the Y register
-; to multiply times 16 and then add the X contents. It uses CharCode and PosX.
-; Colour indicates the colour code of the character. It uses 3 bytes in the
-; stack and does not change registers.
+; to multiply times 16 and then add the X contents. It uses PosX and PosY.
+; Colour contains the colour code of the character. It uses 1 byte in the
+; stack and does not change A, X, Y.
 
 DrawChar:   stx PosX
             sty PosY
@@ -1370,16 +1332,18 @@ DrawChar:   stx PosX
             sta MEMCLR+256,Y
             pla
             sta MEMSCR+256,Y
-            jmp @exit
+            ldy PosY
+            rts
 @tophalf:   adc PosX
             tay
             lda Colour
             sta MEMCLR,Y
             pla
             sta MEMSCR,Y
-@exit:      ldy PosY
-            rts
+            ldy PosY
+@exit:      rts
 
+  
 ; Put a "sprite", that is a 8x8 cell in a 2x2 character position.
 ; A contains the character code. It should be less than 32.
 ; The 4 characters are disposed as follows:
@@ -1388,13 +1352,16 @@ DrawChar:   stx PosX
 ;    BD
 ;
 ; Characters are redefined starting from address contained in SPRITECH
-; X the horizontal position in pixels
-; Y the vertical position in pixels
+; X the horizontal offset in pixels [0,8]
+; Y the vertical offset in pixels [0,8]
+; Employs SPRITECH pointer to the group of 4 ch. for a sprite (word)
+; and CHRPTR pointer to the original ch. in a sprite (word)
 
 LoadSprite: sta CharCode        ; Save the character code and X, Y pos.
             stx SpriteX
             sty SpriteY
-            lda SPRITECH        ; Calculate the vert. offset in the 4-ch sprite
+            clc
+            lda SPRITECH        ; Calculate the vert. offset in ch. table
             adc SpriteY
             sta SPRITECH
             bcc @normal         ; Correct if page change
@@ -1421,19 +1388,16 @@ LoadSprite: sta CharCode        ; Save the character code and X, Y pos.
             lda (CHRPTR),y      ; Charge source
             ldx SpriteX
             beq @noshift
-            clc
-@loop2:     lsr
-            ror CharShr
+@loop2:     lsr                 ; At the beginning of the cycle, x contains
+            ror CharShr         ; the shift in pixels to the right
             dex
             bne @loop2
-@noshift:   ora (SPRITECH),y    ; OR with current sprite data
-            sta (SPRITECH),y    ; Save
+@noshift:   sta (SPRITECH),y    ; Save
             tya
             pha
             adc #16
             tay
             lda CharShr
-            ora (SPRITECH),y    ; OR with current sprite data
             sta (SPRITECH),y    ; Save
             pla
             tay
@@ -1446,9 +1410,10 @@ LoadSprite: sta CharCode        ; Save the character code and X, Y pos.
 ClearSprite:
             ldy #0
             tya
+            ldx #32
 @loop:      sta (SPRITECH),y
             iny
-            cpy #32
+            dex
             bne @loop
             rts
 
@@ -1664,6 +1629,7 @@ Period:     .byte 20            ; Higher = slower alien movement
 AliensR1s:  .byte $FF           ; Presence of aliens in row 1
 AliensR2s:  .byte $FF           ; Same for row 2
 AliensR3s:  .byte $FF           ; Same for row 3
+AliensR:   .byte $FF            ; Presence of aliens in row (temporary)
 AliensR1:   .byte $FF           ; Presence of aliens in row 1 (temporary)
 AliensR2:   .byte $FF           ; Same for row 2 (temporary)
 AliensR3:   .byte $FF           ; Same for row 3 (temporary)
@@ -1919,6 +1885,12 @@ DefChars:
             .byte %00000000
 
             LASTCH = MOTHER3
+            SPRITE1A = LASTCH+1
+            SPRITE1B = LASTCH+2
+            SPRITE1C = LASTCH+3
+            SPRITE1D = LASTCH+4
+            
+            
 
 EndMemMrk:  .byte 0
 
