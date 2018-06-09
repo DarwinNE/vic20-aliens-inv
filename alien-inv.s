@@ -6,15 +6,13 @@
 ;
 ; The objective is not to reproduce perfectly the original game, but more to
 ; propose something very playable and quite fast on the VIC-20. Arcadia has been
-; inspiring, even if the gameplay is very different from Space Invaders.
+; inspiring, even if its gameplay is very different from Space Invaders.
 ;
-; FUTURE MODE ON (for the moment everything is still character-based)
 ; A certain amount of work has been done to ensure that the graphics is smooth
 ; enough so that the effect hopefully appears to be quite polished.
 ; It is my first attempt to write a complete game in 6502 assembly language,
 ; even if I learnt that language many years ago and I used it mainly as a
 ; complement for BASIC programs.
-; FUTURE MODE OFF
 ;
 ; The assembler used is ca65
 ;
@@ -37,7 +35,7 @@
 ; Difficulty-related constants
         BOMBPROB = $F0      ; Higher = less bombs falling
         SHIPPROB = $F5      ; Higher = less mother ships
-        PERIODS = 2         ; Initial difficulty (less=faster)
+        PERIODS = 5         ; Initial difficulty (less=faster)
 
 ; General constants
         NMBOMBS = 8         ; Maximum number of bombs falling at the same time
@@ -95,6 +93,9 @@
         PixShX    = $13     ; Shift in pixels from the character grid
         PixPosX   = $14     ; Position in characters
         PixShY    = $15     ; Shift in pixels from the character grid
+        POSCHARPT = $1A     ; Pointer for a character in memory (word)
+        POSCOLPT  = $1C     ; Pointer for a colour in memory (word)
+        Bombcntr  = $1E
 
         INITVALC=$ede4
 
@@ -121,10 +122,9 @@
 
         REPEATKE = $028A    ; Repeat all keys
 
-
-        VOICE1  = GEN1
-        VOICE2  = GEN2
-        EFFECTS = GEN3
+        VOICE1  = GEN1      ; Voice 1 for music
+        VOICE2  = GEN2      ; Voice 2 for music
+        EFFECTS = GEN3      ; Sound effects (not noise)
 
 .export main
 .segment "STARTUP"
@@ -198,7 +198,6 @@ left:       lda CannonPos
 
 fire:       jsr CannonShoot
             jmp mainloop
-
 
 CannonShoot:
             ldx #0          ; Search for the first free shot
@@ -274,9 +273,9 @@ StartGame:
             sei
             lda #$0F        ; Turn on the volume
             sta VOLUME
-            lda #34
+            lda #17
             sta AlienPosY   ; Initial position of aliens
-            sta AlienCurrY
+            ;sta AlienCurrY
             jsr DrawAliens
             lda #$FF
             sta AliensR1s
@@ -417,8 +416,7 @@ draw1l:
             lda #(48+$80)   ; Write an additional zero
             jmp DrawChar
 
-UpdateHiSc: rts                     ; DEBUG CODE ONLY --------------------------
-            lda Score       ; Update the high score
+UpdateHiSc: lda Score       ; Update the high score
             sta HiScore
             lda Score+1
             sta HiScore+1
@@ -478,9 +476,15 @@ IrqHandler: pha
             bne @cont3
             lda #$0
             sta IrqCn
+            inc Bombcntr
             sta NOISE
+            lda Bombcntr
+            cmp #2
+            bcc @skipbombs
+            lda #0
+            sta Bombcntr
             jsr FallBombs   ; Make bombs fall. Aliens will be on top of bombs
-            lda Win         ; If Win !=0 stop the game
+@skipbombs: lda Win         ; If Win !=0 stop the game
             bne @exitirq
             lda VoiceBase
             bmi @nomusic
@@ -679,13 +683,14 @@ DrawAliens: lda #$ff
             lda #>(GRCHARS1+(LASTCH+1)*8)
             sta SPRITECH+1
             jsr ClearSprite
-            lda PixShX
-            tax
+            ldx PixShX
             lda AlienPosY
             and #7
             tay
             lda AlienCode1
             jsr LoadSprite      ; End of sprite gen code
+            
+            
 
             lda AliensR1s       ; Top line of aliens
             sta AliensR
@@ -714,7 +719,6 @@ DrawAliens: lda #$ff
             lda AliensR3s
             sta AliensR
             jmp AlienLoop
-
 
 AlienLoop:  ldx #8*2
 @loop1:     dex
@@ -752,23 +756,39 @@ DrawAlienG:
 @nomin:     cpx AlienMaxX
             bcc @nomax
             stx AlienMaxX
-@nomax:     
-            lda CharCode    ; Draw alien (4 characters)
-            jsr DrawChar
+@nomax:     lda CharCode
+            jsr PosChar
+            lda CharCode
+            pha
+            ldy #0
+            sta (POSCHARPT),Y       ; Sprite char A
+            lda Colour
+            sta (POSCOLPT),Y
             iny
+            inc CharCode
+            inc CharCode
+            lda CharCode
+            sta (POSCHARPT),Y       ; Sprite char C
+            lda Colour
+            sta (POSCOLPT),Y
+            tya
             clc
-            adc #1
-            jsr DrawChar
-            inx
-            dey
-            clc
-            adc #1
-            jsr DrawChar
+            adc #15
+            tay
+            dec CharCode
+            lda CharCode
+            sta (POSCHARPT),Y       ; Sprite char B
+            lda Colour
+            sta (POSCOLPT),Y
             iny
-            clc
-            adc #1
-            jsr DrawChar
-            dey
+            inc CharCode
+            inc CharCode
+            lda CharCode
+            sta (POSCHARPT),Y       ; Sprite char D
+            lda Colour
+            sta (POSCOLPT),Y
+            pla
+            sta CharCode
             ldx tmp4
 @exit:      rts
 
@@ -988,7 +1008,7 @@ CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
             lda Period          ; Decrease Period (increase alien speed)
             sec
             sbc #$01
-            bcc @exit           ; Avoid having "negative" speeds
+            bcc @exit           ; Avoid having "zero" period
             sta Period
 @exit:      rts
 
@@ -1312,38 +1332,61 @@ Music1:     ldy Voice1ctr
 ; Colour contains the colour code of the character. It uses 1 byte in the
 ; stack and does not change A, X, Y.
 
-DrawChar:   stx PosX
-            sty PosY
-            cpx #16         ; Check if the X value is out of range
+DrawChar:   cpx #16         ; Check if the X value is out of range
             bcs @exit       ; Exit if X greater than 16 (no of columns)
             cpy #31         ; Check if the Y value is out of range
             bcs @exit       ; Exit if Y greater than 31 (no of rows)
+            sty PosY
             pha
+            jsr PosChar
+            ldy #0
+            lda Colour
+            sta (POSCOLPT),Y
+            pla
+            sta (POSCHARPT),Y
+            ldy PosY
+@exit:      rts
+
+; Get the screen code of the character in the X and Y locations.
+; The character is returned in A.
+
+GetChar:    stx PosX
+            sty PosY
+            jsr PosChar
+            ldy #0
+            lda (POSCHARPT),Y
+            ldy PosY
+            rts
+
+; Calculate the address of a screen position and put it in POSCHARPT. Do the
+; same for the color address and put it in POSCOLPT.
+PosChar:    stx PosX
+            lda #<MEMSCR
+            sta POSCHARPT
+            lda #>MEMSCR
+            sta POSCHARPT+1
+            lda #<MEMCLR
+            sta POSCOLPT
+            lda #>MEMCLR
+            sta POSCOLPT+1
             tya
             asl             ; 16 columns per line. Multiply!
             asl
             asl
             asl             ; If it shifts an 1 in the carry, this means that
-            bcc @tophalf    ; we need to write in the bottom-half of the screen
+            bcc @nocorr     ; we need to write in the bottom-half of the screen
+            inc POSCHARPT+1
+            inc POSCOLPT+1
             clc
-            adc PosX
-            tay
-            lda Colour
-            sta MEMCLR+256,Y
+@nocorr:    adc PosX
+            pha
+            adc POSCHARPT
+            sta POSCHARPT
             pla
-            sta MEMSCR+256,Y
-            ldy PosY
+            adc POSCOLPT
+            sta POSCOLPT
             rts
-@tophalf:   adc PosX
-            tay
-            lda Colour
-            sta MEMCLR,Y
-            pla
-            sta MEMSCR,Y
-            ldy PosY
-@exit:      rts
 
-  
 ; Put a "sprite", that is a 8x8 cell in a 2x2 character position.
 ; A contains the character code. It should be less than 32.
 ; The 4 characters are disposed as follows:
@@ -1471,31 +1514,6 @@ PrintStr:   sty PosY
             iny
             inx
             jmp @loop
-@exit:      ldy PosY
-
-; Get the screen code of the character in the X and Y locations.
-; The character is returned in A.
-
-GetChar:    stx PosX
-            sty PosY
-            cpx #16         ; Check if the X value is out of range
-            bcs @exit       ; Exit if X greater than 16 (no of columns)
-            cpy #31         ; Check if the Y value is out of range
-            bcs @exit       ; Exit if Y greater than 31 (no of rows)
-            tya
-            asl             ; 16 columns per line. Multiply!
-            asl
-            asl
-            asl             ; If it shifts an 1 in the carry, this means that
-            bcc @tophalf    ; we need to write in the bottom-half of the screen
-            clc
-            adc PosX
-            tay
-            lda MEMSCR+256,Y
-            jmp @exit
-@tophalf:   adc PosX
-            tay
-            lda MEMSCR,Y
 @exit:      ldy PosY
             rts
 
