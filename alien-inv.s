@@ -37,7 +37,7 @@
 ; Difficulty-related constants
         BOMBPROB = $F0      ; Higher = less bombs falling
         SHIPPROB = $F5      ; Higher = less mother ships
-        PERIODS = 20        ; Initial difficulty (less=faster)
+        PERIODS = 4         ; Initial difficulty (less=faster)
 
 ; General constants
         NMBOMBS = 8         ; Maximum number of bombs falling at the same time
@@ -230,7 +230,7 @@ CannonShoot:
 Init:
             lda #$80        ; Autorepeat on on the keyboard
             sta REPEATKE
-            lda #$09        ; Define screen colour and background (black)
+            lda #$08        ; Define screen colour and background (black)
             sta VICCOLOR
             lda #$90        ; Set a 16 column-wide screen
             sta VICCOLNC
@@ -258,16 +258,16 @@ ContInit:   lda #$FF        ; Move the character generator address to $1C00
             rts
 
 CenterScreenPAL:
-            lda #$16        ; Center the screen vertically...
+            lda #$16        ; Centre the screen vertically...
             sta VICSCRVE
-            lda #$12        ; ... and horisontally
+            lda #$12        ; ... and horizontally
             sta VICSCRHO
             jmp ContInit
 
 CenterScreenNTSC:
-            lda #$06        ; Center the screen vertically...
+            lda #$06        ; Centre the screen vertically...
             sta VICSCRVE
-            lda #$9        ; ... and horisontally
+            lda #$9        ; ... and horizontally
             sta VICSCRHO
             jmp ContInit
 
@@ -292,6 +292,7 @@ StartGame:
             sta Win
             sta IrqCn
             sta NOISE
+            lda #0
             sta AlienPosX
             ldx #NMBOMBS    ; Clear all bombs
 @loopg:     sta BombSpeed-1,X
@@ -473,7 +474,6 @@ IrqHandler: pha
             lda #$00
             sta EFFECTS
             lda Win         ; If Win !=0 stop the game
-            cmp #$00
             beq @contirq
             jmp @exitirq
 @contirq:   lda IrqCn
@@ -483,10 +483,8 @@ IrqHandler: pha
             sta IrqCn
             sta NOISE
             jsr draw1l
-            jsr EraseAliens  ; Redraw aliens
             jsr FallBombs   ; Make bombs fall. Aliens will be on top of bombs
             lda Win         ; If Win !=0 stop the game
-            cmp #$00
             bne @exitirq
             lda VoiceBase
             bmi @nomusic
@@ -494,7 +492,6 @@ IrqHandler: pha
             lsr
             lsr
 @nomusic:   sta VoiceBase
-            inc AlienPosY   ; Increment the Y position of the aliens
             lda Direction   ; Increment or decrement the X position,
             bne @negative   ; depending on the Direction value
 @positive:  inc AlienPosX   ; The position should be increased
@@ -513,21 +510,26 @@ IrqHandler: pha
 @normal:    jsr DrawAliens
             lda AlienMaxX   ; Check if the direction should be reversed
             cmp #15
-            bcc @cont2
+            bmi @cont2
             lda #1
             sta Direction   ; Invert the direction
+            inc AlienPosY   ; Increment the Y position of the aliens
+                        jsr EraseAliens  ; Redraw aliens
+
 @cont2:     lda AlienMinX   ; Check if the direction should be reversed
             cmp #1
-            bcs @cont3
+            bcs @cont3      ; Check for the pixel position too
+            lda PixShX
+            bne @cont3
             lda #0
             sta Direction   ; Invert the direction
-            sta Direction
+            inc AlienPosY   ; Increment the Y position of the aliens
+                        jsr EraseAliens  ; Redraw aliens
+
 @cont3:     lda CannonPos   ; Check if the cannon position has changed
             cmp OldCannonP
             beq @nochange
             jsr ClearCannon
-            lda CannonPos   ; Update the OldCannonP value to the current pos.
-            sta OldCannonP
 @nochange:  jsr DrawCannon
             jsr MoveShoots  ; Update the position of cannon shots
             inc IrqCn
@@ -536,9 +538,7 @@ IrqHandler: pha
             bne @exitirq
             jsr MotherSh
 @exitirq:   jsr Music1
-            jsr Music2
-
-            ;jsr testsprite
+            ;jsr Music2
 
             pla             ; Restore registers
             tay
@@ -634,6 +634,8 @@ ClearCannon:
             sta Colour
             lda #EMPTY          ; Space
             jsr DrawChar
+            lda CannonPos   ; Update the OldCannonP value to the current pos.
+            sta OldCannonP
             rts
 
 ; Erase aliens
@@ -646,15 +648,21 @@ EraseAliens:
             cmp #1
             beq @exit
             tay
-            ldx #16
+            dey
             lda #BLACK
             sta Colour
             lda #EMPTY
+            ldx #16
 @loop:      dex
             jsr DrawChar
-            cpx 0
+            cpx #0
             bne @loop
-
+            stx Score               ; DEBUG CODE ONLY --------------------------
+            sty HiScore             ; DEBUG CODE ONLY --------------------------
+            iny
+            jsr DrawChar
+            iny
+            jsr DrawChar
 @exit:      rts
 
 ; Draw aliens on the screen. They are several lines with at most 8 aliens
@@ -673,13 +681,11 @@ DrawAliens: lda #$ff
             sta AliensR2
             lda AliensR3s
             sta AliensR3
-            ldx #8*2
             lda AlienPosY      ; The position is in pixel, divide by 8
             lsr                ; to obtain position in characters
             lsr
             lsr
             sta AlienCurrY
-
 ;;;
             lda AlienPosX
             and #7
@@ -696,7 +702,7 @@ DrawAliens: lda #$ff
             tay
             lda AlienCode1
             jsr LoadSprite
-
+            ldx #8*2
 @loop1:     dex
             ldy AlienCurrY
             lda AliensR1
@@ -706,34 +712,30 @@ DrawAliens: lda #$ff
             bcs @drawAlien0
 @ret1:      dex
             bne @loop1
-            inc AlienCurrY
-            inc AlienCurrY
-            ldx #8*2
-@loop2:     dex
-            ldy AlienCurrY
-            lda AliensR2
-            clc
-            rol
-            sta AliensR2
-            ;bcs @drawAlien1
-@ret2:      dex
-            bne @loop2
-            inc AlienCurrY
-            inc AlienCurrY
-            ldx #8*2
-@loop3:     dex
-            ldy AlienCurrY
-            lda AliensR3
-            clc
-            rol
-            sta AliensR3
-            ;bcs @drawAlien2
-@ret3:      dex
-            bne @loop3
-            lda AlienMaxX           ; DEBUG CODE ONLY --------------------------
-            sta Score               ; DEBUG CODE ONLY --------------------------
-            lda AlienPosX           ; DEBUG CODE ONLY --------------------------
-            sta HiScore             ; DEBUG CODE ONLY --------------------------
+;             inc AlienCurrY
+;             inc AlienCurrY
+;             ldx #8*2
+; @loop2:     dex
+;             ldy AlienCurrY
+;             lda AliensR2
+;             clc
+;             rol
+;             sta AliensR2
+;             ;bcs @drawAlien1
+; @ret2:      dex
+;             bne @loop2
+;             inc AlienCurrY
+;             inc AlienCurrY
+;             ldx #8*2
+; @loop3:     dex
+;             ldy AlienCurrY
+;             lda AliensR3
+;             clc
+;             rol
+;             sta AliensR3
+;             ;bcs @drawAlien2
+; @ret3:      dex
+;             bne @loop3
             rts
 
 @drawAlien0:
@@ -742,20 +744,20 @@ DrawAliens: lda #$ff
             lda #RED
             jsr DrawAlienG
             jmp @ret1
-
-@drawAlien1:
-            lda #(LASTCH+1) ; AlienCode2
-            sta CharCode
-            lda #CYAN
-            jsr DrawAlienG
-            jmp @ret2
-
-@drawAlien2:
-            lda #(LASTCH+1) ; AlienCode3
-            sta CharCode
-            lda #GREEN
-            jsr DrawAlienG
-            jmp @ret3
+; 
+; @drawAlien1:
+;             lda #(LASTCH+1) ; AlienCode2
+;             sta CharCode
+;             lda #CYAN
+;             jsr DrawAlienG
+;             jmp @ret2
+; 
+; @drawAlien2:
+;             lda #(LASTCH+1) ; AlienCode3
+;             sta CharCode
+;             lda #GREEN
+;             jsr DrawAlienG
+;             jmp @ret3
 
 ; Draw a generic alien routine and update the min/max X positions variables.
 ; A should contain the colour to be used for the aliens.
@@ -763,27 +765,28 @@ DrawAliens: lda #$ff
 ; In CharCode, the alien character code should be written.
 
 DrawAlienG: sta Colour
+            stx tmp4        ; X contains the alien pos. in the line (in ch.)
             lda AlienPosX
+            bmi @exit
             and #7
-            sta PixShX
+            sta PixShX      ; Shift in pixels with respect to char grid
             lda AlienPosX   ; Calculate the position in characters
+            lsr             ; Divide by 8
             lsr
             lsr
-            lsr
-            sta PixPosX
-            stx tmp4
+            sta PixPosX     ; Store it in PixPosX
             dex
             txa
             clc
-            adc PixPosX
-            tax
+            adc PixPosX     ; To be added o the pos. in characters
+            tax             ; to obtain the actual position where to draw al.
             cpx AlienMinX   ; Update the minimum and maximum value of positions
-            bcs @nomin
             stx AlienMinX
 @nomin:     cpx AlienMaxX
             bcc @nomax
             stx AlienMaxX
-@nomax:     lda CharCode
+@nomax:     
+            lda CharCode    ; Draw alien (4 characters)
             jsr DrawChar
             iny
             clc
@@ -800,7 +803,7 @@ DrawAlienG: sta Colour
             jsr DrawChar
             dey
             ldx tmp4
-            rts
+@exit:      rts
 
 ; Control the movement of the bullet/laser shot fired by the cannon.
 
@@ -839,7 +842,6 @@ loop4:      stx tmpindex
             jsr DrawChar        ; Erase the shot in the old position
             ldx tmpindex
             lda FireSpeed,X     ; Do not draw inactive shots
-            cmp #0
             beq notmove
             cmp #$FF
             bne @normal
@@ -982,13 +984,10 @@ alienshot:  lda #$D0
 ; Check if the player won the game.
 
 CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
-            cmp #$00
             bne @exit
             lda AliensR2s
-            cmp #$00
             bne @exit
             lda AliensR3s
-            cmp #$00
             bne @exit
             lda #$FF            ; If we come here, all aliens have been shot
             sta Win             ; That will stop the game
@@ -1021,7 +1020,7 @@ CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
             sta VOICE1
             lda Period          ; Decrease Period (increase alien speed)
             sec
-            sbc #$02
+            sbc #$01
             bcc @exit           ; Avoid having "negative" speeds
             sta Period
 @exit:      rts
@@ -1107,7 +1106,6 @@ FallBombs:  lda AliensR1s
 
             ldx #0              ; Update the position of the bombs
 @loop3:     lda BombSpeed,X     ; Check that the bomb is active (speed>0)
-            cmp #0
             beq @cont
             clc                 ; If speed !=0, update current Y position
             adc BombPosY,X
@@ -1125,7 +1123,6 @@ DrawBombs:  ldx #0              ; Draw bombs
             sta Colour
 @loop4:     stx tmpindex
             lda BombSpeed,X     ; Do not draw inactive bombs
-            cmp #0
             beq @notmove
             lda BombPosX,X
             sta tmpx            ; Store the X position of the bomb
@@ -1276,75 +1273,75 @@ Music1:     ldy Voice1ctr
 
 ; Music driver for the second voice. Very similar to voice 1.
 
-Music2:     ldy Voice2ctr
-            beq @playnext
-            cpy Voice2nod
-            bne @dec
-            lda #$00
-            sta VOICE2
-@dec:       dey 
-            sty Voice2ctr
-            rts
-
-@playnext:  ldx Voice2ptr
-            lda Voice2data,x
-            cmp #repeatm
-            beq @repeat
-            cmp #endloop
-            beq @endmloop
-            and #maskcode
-            cmp #loopcode
-            beq @loopmusic
-            cmp #notecode
-            beq @note
-            cmp #duracode
-            beq @duration
-
-@exitmusic: inx
-            stx Voice2ptr
-            rts
-
-@loopmusic: lda Voice2data,x
-            and #unmask
-            sta Loop2ctr
-            inx
-            stx Voice2ptr
-            stx Loop2str
-            jmp @playnext
-
-@endmloop:  ldy Loop2ctr
-            dey
-            sty Loop2ctr
-            beq @exitloop
-            ldx Loop2str
-            stx Voice2ptr
-            jmp @playnext
-@exitloop:  inx
-            stx Voice2ptr
-            jmp @playnext
-
-@note:      lda Voice2data,x
-            and #unmask
-            clc
-            adc #128
-            adc VoiceBase
-            sta VOICE2
-            lda Voice2drt
-            sta Voice2ctr
-            jmp @exitmusic
-
-@duration:  lda Voice2data,x
-            and #unmask
-            sta Voice2drt
-            inx
-            lda Voice2data,x
-            sta Voice2nod
-            inx
-            stx Voice2ptr
-            jmp @playnext
-
-@repeat:    ldx #$FF            ; That will overflow to 0 at the next inx
-            jmp @exitmusic
+; Music2:     ldy Voice2ctr
+;             beq @playnext
+;             cpy Voice2nod
+;             bne @dec
+;             lda #$00
+;             sta VOICE2
+; @dec:       dey 
+;             sty Voice2ctr
+;             rts
+; 
+; @playnext:  ldx Voice2ptr
+;             lda Voice2data,x
+;             cmp #repeatm
+;             beq @repeat
+;             cmp #endloop
+;             beq @endmloop
+;             and #maskcode
+;             cmp #loopcode
+;             beq @loopmusic
+;             cmp #notecode
+;             beq @note
+;             cmp #duracode
+;             beq @duration
+; 
+; @exitmusic: inx
+;             stx Voice2ptr
+;             rts
+; 
+; @loopmusic: lda Voice2data,x
+;             and #unmask
+;             sta Loop2ctr
+;             inx
+;             stx Voice2ptr
+;             stx Loop2str
+;             jmp @playnext
+; 
+; @endmloop:  ldy Loop2ctr
+;             dey
+;             sty Loop2ctr
+;             beq @exitloop
+;             ldx Loop2str
+;             stx Voice2ptr
+;             jmp @playnext
+; @exitloop:  inx
+;             stx Voice2ptr
+;             jmp @playnext
+; 
+; @note:      lda Voice2data,x
+;             and #unmask
+;             clc
+;             adc #128
+;             adc VoiceBase
+;             sta VOICE2
+;             lda Voice2drt
+;             sta Voice2ctr
+;             jmp @exitmusic
+; 
+; @duration:  lda Voice2data,x
+;             and #unmask
+;             sta Voice2drt
+;             inx
+;             lda Voice2data,x
+;             sta Voice2nod
+;             inx
+;             stx Voice2ptr
+;             jmp @playnext
+; 
+; @repeat:    ldx #$FF            ; That will overflow to 0 at the next inx
+;             jmp @exitmusic
 
 
 ; Draw the character in A in the position given by the X and Y registers
@@ -1353,13 +1350,13 @@ Music2:     ldy Voice2ctr
 ; Colour indicates the colour code of the character. It uses 3 bytes in the
 ; stack and does not change registers.
 
-DrawChar:   sta CharCode
-            stx PosX
+DrawChar:   stx PosX
             sty PosY
             cpx #16         ; Check if the X value is out of range
             bcs @exit       ; Exit if X greater than 16 (no of columns)
             cpy #31         ; Check if the Y value is out of range
             bcs @exit       ; Exit if Y greater than 31 (no of rows)
+            pha
             tya
             asl             ; 16 columns per line. Multiply!
             asl
@@ -1371,14 +1368,14 @@ DrawChar:   sta CharCode
             tay
             lda Colour
             sta MEMCLR+256,Y
-            lda CharCode
+            pla
             sta MEMSCR+256,Y
             jmp @exit
 @tophalf:   adc PosX
             tay
             lda Colour
             sta MEMCLR,Y
-            lda CharCode
+            pla
             sta MEMSCR,Y
 @exit:      ldy PosY
             rts
@@ -1448,7 +1445,7 @@ LoadSprite: sta CharCode        ; Save the character code and X, Y pos.
 ; Clear the contents of a "sprite".
 ClearSprite:
             ldy #0
-            lda #0              ; Use #(128+1) for test
+            tya
 @loop:      sta (SPRITECH),y
             iny
             cpy #32
@@ -1456,44 +1453,44 @@ ClearSprite:
             rts
 
 ; A basic test showing a "sprite"
-testsprite: lda #<(GRCHARS1+(LASTCH+1)*8)
-            sta SPRITECH
-            lda #>(GRCHARS1+(LASTCH+1)*8)
-            sta SPRITECH+1
-            jsr ClearSprite
-
-            lda PixShX
-            tax
-            lda AlienPosY
-            and #7
-            tay
-            ;ldx #7
-            lda #ALIEN3
-            jsr LoadSprite
-            
-            lda #MAGENTA
-            sta Colour
-
-            lda #(LASTCH+1)
-            ldx #8
-            ldy #15
-            jsr DrawChar
-            
-            lda #(LASTCH+2)
-            ldx #8
-            ldy #16
-            jsr DrawChar
-            
-            lda #(LASTCH+3)
-            ldx #9
-            ldy #15
-            jsr DrawChar
-            
-            lda #(LASTCH+4)
-            ldx #9
-            ldy #16
-            jsr DrawChar
-            rts
+; testsprite: lda #<(GRCHARS1+(LASTCH+1)*8)
+;             sta SPRITECH
+;             lda #>(GRCHARS1+(LASTCH+1)*8)
+;             sta SPRITECH+1
+;             jsr ClearSprite
+; 
+;             lda PixShX
+;             tax
+;             lda AlienPosY
+;             and #7
+;             tay
+;             ;ldx #7
+;             lda #ALIEN3
+;             jsr LoadSprite
+;             
+;             lda #MAGENTA
+;             sta Colour
+; 
+;             lda #(LASTCH+1)
+;             ldx #8
+;             ldy #15
+;             jsr DrawChar
+;             
+;             lda #(LASTCH+2)
+;             ldx #8
+;             ldy #16
+;             jsr DrawChar
+;             
+;             lda #(LASTCH+3)
+;             ldx #9
+;             ldy #15
+;             jsr DrawChar
+;             
+;             lda #(LASTCH+4)
+;             ldx #9
+;             ldy #16
+;             jsr DrawChar
+;             rts
 
 ; Print a string (null terminated) whose address is contained in LAB_01 and
 ; LAB_02 at the position given by X and Y pointers
@@ -1768,6 +1765,7 @@ YouWonSt:   .byte (25+$80), (15+$80), (21+$80), (32+$80), (23+$80), (15+$80)
 
 GameOverSt: .byte (7+$80), (1+$80), (13+$80), (5+$80), (32+$80), (15+$80)
             .byte (22+$80), (5+$80), (18+$80), 0
+            
 
 DefChars:
             ALIEN1 = 0
@@ -1921,5 +1919,7 @@ DefChars:
             .byte %00000000
 
             LASTCH = MOTHER3
+
+EndMemMrk:  .byte 0
 
             
