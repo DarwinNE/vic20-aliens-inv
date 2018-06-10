@@ -95,7 +95,9 @@
         PixShY    = $15     ; Shift in pixels from the character grid
         POSCHARPT = $1A     ; Pointer for a character in memory (word)
         POSCOLPT  = $1C     ; Pointer for a colour in memory (word)
-        Bombcntr  = $1E
+        Bombcntr  = $1E     ; Counter for bomb interrupts
+        PixPosXO   = $1F    ; Old Position in characters
+        TmpScan    = $20
 
         INITVALC=$ede4
 
@@ -104,6 +106,7 @@
         VICSCRVE = $9001    ; Vertical position of the screen
         VICCOLNC = $9002    ; Screen width in columns and video memory addr.
         VICROWNC = $9003    ; Screen height, 8x8 or 8x16 chars, scan line addr.
+        VICRAST  = $9004    ; Bits 8-1 of the current raster line
         VICCHGEN = $9005    ; Character gen. and video matrix addresses.
         GEN1     = $900A    ; First sound generator
         GEN2     = $900B    ; Second sound generator
@@ -275,9 +278,9 @@ StartGame:
             sta VOLUME
             lda #17
             sta AlienPosY   ; Initial position of aliens
-            ;sta AlienCurrY
             jsr DrawAliens
             lda #$FF
+            sta AlienPosYO
             sta AliensR1s
             sta AliensR2s
             sta AliensR3s
@@ -416,7 +419,8 @@ draw1l:
             lda #(48+$80)   ; Write an additional zero
             jmp DrawChar
 
-UpdateHiSc: lda Score       ; Update the high score
+UpdateHiSc: ;rts     ; DEBUG
+            lda Score       ; Update the high score
             sta HiScore
             lda Score+1
             sta HiScore+1
@@ -473,8 +477,9 @@ IrqHandler: pha
             jmp @exitirq
 @contirq:   lda IrqCn
             cmp Period      ; Execute every PERIOD/60 of second
-            bne @cont3
-            lda #$0
+            beq @contint
+            jmp @cont3
+@contint:   lda #$0
             sta IrqCn
             inc Bombcntr
             sta NOISE
@@ -531,13 +536,12 @@ IrqHandler: pha
 @nochange:  jsr DrawCannon
             jsr MoveShoots  ; Update the position of cannon shots
             inc IrqCn
-            lda IrqCn       ; Check if we should enter the mother ship
+            lda Bombcntr    ; Check if we should enter the mother ship
             and #$01
             bne @exitirq
             jsr MotherSh
 @exitirq:   jsr Music1
             ;jsr Music2
-
             pla             ; Restore registers
             tay
             pla
@@ -665,11 +669,7 @@ bottomp:
 ; and can be destroyed when hit. In this case, the corresponding bit in the
 ; AliensR1 byte is set to 0. Same for AliensR2 and AliensR3.
 
-DrawAliens: lda #$ff
-            sta AlienMinX
-            lda #$00
-            sta AlienMaxX
-            lda AlienPosY      ; The position is in pixel, divide by 8
+DrawAliens: lda AlienPosY      ; The position is in pixel, divide by 8
             lsr                ; to obtain position in characters
             lsr
             lsr
@@ -682,6 +682,34 @@ DrawAliens: lda #$ff
             sta SPRITECH
             lda #>(GRCHARS1+(LASTCH+1)*8)
             sta SPRITECH+1
+;                  @waitrast1:  lda VICRAST
+;                  cmp #32
+;                  bne @waitrast1 ; DEBUG
+            ;lda #09       ; DEBUG
+            ;sta VICCOLOR  ; DEBUG
+
+
+; PAL only code here!
+
+@waitrast:  lda VICRAST   ; Wait if there is a risk of flicker
+            lsr
+            lsr
+            sec
+            sta TmpScan
+            sbc #11
+            bpl @greater
+            lda #0
+@greater:   cmp AlienCurrY
+            bcs @noflicker
+            lda TmpScan
+            cmp AlienCurrY
+            bcc @noflicker
+            bcs @waitrast
+@noflicker:
+            ;lda #08       ; DEBUG
+            ;sta VICCOLOR  ; DEBUG
+            
+            
             jsr ClearSprite
             ldx PixShX
             lda AlienPosY
@@ -689,8 +717,28 @@ DrawAliens: lda #$ff
             tay
             lda AlienCode1
             jsr LoadSprite      ; End of sprite gen code
-            
-            
+
+            lda AlienPosX       ; Calculate the position in characters
+            lsr                 ; Divide by 8
+            lsr
+            lsr
+            sta PixPosX         ; Store it in PixPosX
+
+;             cmp PixPosXO        ; Check if the characters should be rewritten
+;             bne @normal
+;             lda AlienCurrY
+;             cmp AlienPosYO
+;             bne @normal
+;             rts                 ; They should not. Exit from there
+; @normal:    lda PixPosX
+;             sta PixPosXO
+;             lda AlienCurrY
+;             sta AlienPosYO
+
+            lda #$ff            ; Reset the min/max positions of aliens in ch.
+            sta AlienMinX
+            lda #$00
+            sta AlienMaxX
 
             lda AliensR1s       ; Top line of aliens
             sta AliensR
@@ -702,8 +750,6 @@ DrawAliens: lda #$ff
 
             inc AlienCurrY      ; Second line of aliens
             inc AlienCurrY
-            lda #(LASTCH+1)     ; AlienCode1
-            sta CharCode
             lda #CYAN
             sta Colour
             lda AliensR2s
@@ -712,85 +758,61 @@ DrawAliens: lda #$ff
             
             inc AlienCurrY      ; Third line of aliens
             inc AlienCurrY
-            lda #(LASTCH+1)     ; AlienCode1
-            sta CharCode
+
             lda #GREEN
             sta Colour
             lda AliensR3s
             sta AliensR
             jmp AlienLoop
 
-AlienLoop:  ldx #8*2
-@loop1:     dex
-            ldy AlienCurrY
+; Draw a line of aliens (the sprite should have been already created)
+
+AlienLoop:  ldy AlienCurrY
+            ldx #0
+            jsr PosChar
+            ldx #8*2
+@loop1:     dex             ; X contains the alien pos. in the line (in ch.)
             asl AliensR
             bcc @ret
-            jsr DrawAlienG
-@ret:       dex
-            bne @loop1
-            rts
-
-; Draw a generic alien routine and update the min/max X positions variables.
-; A should contain the colour to be used for the aliens.
-; X and Y contain the position in the screen.
-; In CharCode, the alien character code should be written.
-
-DrawAlienG: 
-            stx tmp4        ; X contains the alien pos. in the line (in ch.)
-            lda AlienPosX
-            bmi @exit
-            and #7
-            sta PixShX      ; Shift in pixels with respect to char grid
-            lda AlienPosX   ; Calculate the position in characters
-            lsr             ; Divide by 8
-            lsr
-            lsr
-            sta PixPosX     ; Store it in PixPosX
-            dex
             txa
             clc
             adc PixPosX     ; To be added o the pos. in characters
-            tax             ; to obtain the actual position where to draw al.
-            cpx AlienMinX   ; Update the minimum and maximum value of positions
-            stx AlienMinX
-@nomin:     cpx AlienMaxX
+            tay             ; to obtain the actual position where to draw al.
+            dey
+            cpy AlienMinX   ; Update the minimum and maximum value of positions
+            bcs @nomin
+            sty AlienMinX
+@nomin:     cpy AlienMaxX
             bcc @nomax
-            stx AlienMaxX
+            sty AlienMaxX
 @nomax:     lda CharCode
-            jsr PosChar
-            lda CharCode
-            pha
-            ldy #0
             sta (POSCHARPT),Y       ; Sprite char A
             lda Colour
             sta (POSCOLPT),Y
             iny
-            inc CharCode
-            inc CharCode
-            lda CharCode
-            sta (POSCHARPT),Y       ; Sprite char C
-            lda Colour
             sta (POSCOLPT),Y
-            tya
             clc
+            lda CharCode
+            adc #2
+            sta (POSCHARPT),Y       ; Sprite char C
+            tya
             adc #15
             tay
-            dec CharCode
             lda CharCode
+            adc #1
             sta (POSCHARPT),Y       ; Sprite char B
             lda Colour
             sta (POSCOLPT),Y
             iny
-            inc CharCode
-            inc CharCode
-            lda CharCode
-            sta (POSCHARPT),Y       ; Sprite char D
-            lda Colour
             sta (POSCOLPT),Y
-            pla
-            sta CharCode
-            ldx tmp4
-@exit:      rts
+            lda CharCode
+            adc #3
+            sta (POSCHARPT),Y       ; Sprite char D
+@exit:
+@ret:       dex
+            bne @loop1
+            rts
+
 
 ; Control the movement of the bullet/laser shot fired by the cannon.
 
@@ -1658,6 +1680,7 @@ AlienPosX:  .byte $00           ; Horizontal position of aliens (in pixels)
 AlienMaxX:  .byte $00
 AlienMinX:  .byte $00
 AlienPosY:  .byte $00           ; Vertical position of aliens (in pixels)
+AlienPosYO: .byte $00
 AlienCurrY: .byte $00           ; Vertical position of alien being drawn
 Direction:  .byte $00           ; The first bit indicates aliens' X direction
 CannonPos:  .byte $8*8          ; Horizontal position of the cannon (in pixels)
