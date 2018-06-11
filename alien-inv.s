@@ -90,9 +90,9 @@
         SpriteX   = $10     ; X position (offset in a char) of a sprite (byte)
         SpriteY   = $11     ; Y position (offset in a char) of a sprite (byte)
         CharShr   = $12     ; Employed in LoadSprite
-        PixShX    = $13     ; Shift in pixels from the character grid
+        temp1     = $13     ; Shift in pixels from the character grid
         PixPosX   = $14     ; Position in characters
-        PixShY    = $15     ; Shift in pixels from the character grid
+        ;SpriteY    = $15     ; Shift in pixels from the character grid
         POSCHARPT = $1A     ; Pointer for a character in memory (word)
         POSCOLPT  = $1C     ; Pointer for a colour in memory (word)
         Bombcntr  = $1E     ; Counter for bomb interrupts
@@ -484,7 +484,7 @@ IrqHandler: pha
             inc Bombcntr
             sta NOISE
             lda Bombcntr
-            cmp #2
+            cmp #3
             bcc @skipbombs
             lda #0
             sta Bombcntr
@@ -509,11 +509,12 @@ IrqHandler: pha
 @draw:      lda AlienPosY
             ror
             bcs @altaliens
-            jsr alienst1
-            jmp @normal
-@altaliens: jsr alienst2
-@normal:    jsr EraseAliens ; Redraw aliens
-            jsr DrawAliens
+            lda #ALIEN1
+            sta AlienCode1
+            bcc @normal
+@altaliens: lda #ALIEN2
+            sta AlienCode1
+@normal:    jsr DrawAliens
             lda AlienMaxX   ; Check if the direction should be reversed
             cmp #15
             bmi @cont2
@@ -523,7 +524,7 @@ IrqHandler: pha
 @cont2:     lda AlienMinX   ; Check if the direction should be reversed
             cmp #1
             bcs @cont3      ; Check for the pixel position too
-            lda PixShX
+            lda SpriteX
             bne @cont3
             lda #0
             sta Direction   ; Invert the direction
@@ -536,10 +537,7 @@ IrqHandler: pha
 @nochange:  jsr DrawCannon
             jsr MoveShoots  ; Update the position of cannon shots
             inc IrqCn
-            lda Bombcntr    ; Check if we should enter the mother ship
-            and #$01
-            bne @exitirq
-            jsr MotherSh
+            jsr MotherSh    ; Check if we should enter the mother ship
 @exitirq:   jsr Music1
             ;jsr Music2
             pla             ; Restore registers
@@ -550,21 +548,6 @@ IrqHandler: pha
             jmp $EABF       ; Jump to the standard IRQ handling routine
 
 
-alienst1:   lda #ALIEN1
-            sta AlienCode1
-            lda #ALIEN2
-            sta AlienCode2
-            lda #ALIEN3
-            sta AlienCode3
-            rts
-
-alienst2:   lda #ALIEN2
-            sta AlienCode1
-            lda #ALIEN1
-            sta AlienCode2
-            lda #ALIEN4
-            sta AlienCode3
-            rts
 
 ; Decide wether the mother ship enters the screen and handle its movement.
 
@@ -639,57 +622,90 @@ ClearCannon:
             sta OldCannonP
             rts
 
-; Erase aliens
+; Erase aliens. Calculate AlienCurrY (in chars)
 
 EraseAliens: 
             lda AlienPosY
-            and #$F8
-            sec
-            sbc #$08
-            asl
+            lsr
+            lsr
+            lsr
+            sta AlienCurrY
             tay
-            ldx #16
+            dey
+            ldx #0
+            jsr PosChar
+            ldy #16*7
             lda #EMPTY
-            bcs bottomp
-@loop:      sta MEMSCR,y
-            iny
-            dex
+@loop:      sta (POSCHARPT),y   ; A little bit of loop unrolling
+            dey
+            sta (POSCHARPT),y
+            dey
+            sta (POSCHARPT),y
+            dey
+            sta (POSCHARPT),y
+            dey
+            sta (POSCHARPT),y
+            dey
+            sta (POSCHARPT),y
+            dey
+            sta (POSCHARPT),y
+            dey
+            sta (POSCHARPT),y
+            dey
             bne @loop
+            sta (POSCHARPT),y
             rts
-bottomp:
-@loop:      sta MEMSCR+256,y
-            iny
-            dex
-            bne @loop
-            rts
+
+; Calculate SpriteX and PixPos from AlienPosX. It is a little tricky, as
+; AlienPosX can be negative and some corrections have to be done.
+
+CalcXpos:   lda AlienPosX      ; Sprite generating code starts here
+            and #7
+            sta SpriteX
+            
+            lda AlienPosX       ; Calculate the position in characters
+            bpl @positive
+            EOR #$FF
+            CLC
+            ADC #1
+            pha
+            and #7
+            sta SpriteX
+            pla 
+@positive:  lsr                 ; Divide by 8
+            lsr
+            lsr
+            sta PixPosX         ; Store it in PixPosX
+            lda AlienPosX       ; Calculate the position in characters
+            bpl @positive1
+            LDA #$FF
+            SEC
+            SBC PixPosX
+            STA PixPosX
+            lda #7
+            sec
+            sbc SpriteX
+            sta SpriteX
+@positive1: rts
 
 ; Draw aliens on the screen. They are several lines with at most 8 aliens
 ; each. The presence of an alien in the first row is given by bits in the
 ; AliensR1 byte. An alien is present at the beginning of the game (or level)
 ; and can be destroyed when hit. In this case, the corresponding bit in the
 ; AliensR1 byte is set to 0. Same for AliensR2 and AliensR3.
+; The vertical position of the aliens should be in AliensPosY (in pixels) and
+; AlienCurrY (in chars) should have been already calculated.
 
-DrawAliens: lda AlienPosY      ; The position is in pixel, divide by 8
-            lsr                ; to obtain position in characters
-            lsr
-            lsr
-            sta AlienCurrY
-
-            lda AlienPosX      ; Sprite generating code starts here
+DrawAliens: jsr CalcXpos
+            lda AlienPosY
             and #7
-            sta PixShX
+            sta SpriteY
             lda #<(GRCHARS1+(LASTCH+1)*8)
             sta SPRITECH
             lda #>(GRCHARS1+(LASTCH+1)*8)
             sta SPRITECH+1
-;                  @waitrast1:  lda VICRAST
-;                  cmp #32
-;                  bne @waitrast1 ; DEBUG
-            ;lda #09       ; DEBUG
-            ;sta VICCOLOR  ; DEBUG
 
-
-; PAL only code here!
+; PAL-only code here!
 
 @waitrast:  lda VICRAST   ; Wait if there is a risk of flicker
             lsr
@@ -706,34 +722,14 @@ DrawAliens: lda AlienPosY      ; The position is in pixel, divide by 8
             bcc @noflicker
             bcs @waitrast
 @noflicker:
-            ;lda #08       ; DEBUG
-            ;sta VICCOLOR  ; DEBUG
-            
-            
+
+; End of PAL-only code
+
+            jsr EraseAliens
             jsr ClearSprite
-            ldx PixShX
-            lda AlienPosY
-            and #7
-            tay
             lda AlienCode1
+            sta CharCode
             jsr LoadSprite      ; End of sprite gen code
-
-            lda AlienPosX       ; Calculate the position in characters
-            lsr                 ; Divide by 8
-            lsr
-            lsr
-            sta PixPosX         ; Store it in PixPosX
-
-;             cmp PixPosXO        ; Check if the characters should be rewritten
-;             bne @normal
-;             lda AlienCurrY
-;             cmp AlienPosYO
-;             bne @normal
-;             rts                 ; They should not. Exit from there
-; @normal:    lda PixPosX
-;             sta PixPosXO
-;             lda AlienCurrY
-;             sta AlienPosYO
 
             lda #$ff            ; Reset the min/max positions of aliens in ch.
             sta AlienMinX
@@ -771,7 +767,7 @@ AlienLoop:  ldy AlienCurrY
             ldx #0
             jsr PosChar
             ldx #8*2
-@loop1:     dex             ; X contains the alien pos. in the line (in ch.)
+@loop:      dex             ; X contains the alien pos. in the line (in ch.)
             asl AliensR
             bcc @ret
             txa
@@ -810,7 +806,7 @@ AlienLoop:  ldy AlienCurrY
             sta (POSCHARPT),Y       ; Sprite char D
 @exit:
 @ret:       dex
-            bne @loop1
+            bne @loop
             rts
 
 
@@ -820,8 +816,7 @@ MoveShoots: ldx #0              ; Update the position of the shot
 @loop:      lda FireSpeed,X     ; Check if the shot is active (speed!=0)
             beq @cont
             lda FirePosY,X
-            clc
-            adc #$B0
+            ora #$80
             sta EFFECTS         ; Sound effect: peeewwww!!!
             lda FirePosY,X
             sec                 ; If speed >0, update current Y position
@@ -876,13 +871,13 @@ notmove:    ldx tmpindex
 ; Here we know that a collision took place, so we should see what element has
 ; been encountered by the bullet. A contains the character that has been found
 
-collision:  cmp #ALIEN1
+collision:  cmp #SPRITE1A
             beq alienshot
-            cmp #ALIEN2
+            cmp #SPRITE1B
             beq alienshot
-            cmp #ALIEN3
+            cmp #SPRITE1C
             beq alienshot
-            cmp #ALIEN4
+            cmp #SPRITE1D
             beq alienshot
             cmp #BLOCK
             beq bunkershot
@@ -927,7 +922,9 @@ mothershot: txa
             clc
             adc #$05
             sta Score
-            jmp backcoll
+            bcc @norm
+            inc Score+1
+@norm:      jmp backcoll
 
 bunkershot: lda #EXPLOSION1
             jsr DrawChar
@@ -937,7 +934,23 @@ bunkershot: lda #EXPLOSION1
             sta FirePosY,X      ; This would cause a redraw erasing the shot
             jmp backcoll
 
-alienshot:  lda #$D0
+alienshot:  sty temp1
+            sta CharCode
+            jsr CalcChGenOfs
+            ldy #7
+            lda #SHOTMSK        ; Check collision between active pixels in the
+@loop:      and (CHRPTR),Y      ; sprite and the SHOTMSK
+            bne @realshot
+            dey
+            bne @loop
+            and (CHRPTR),Y      ; sprite and the SHOTMSK
+            bne @realshot
+            rts
+
+@realshot:  ldy temp1
+            lda PixPosX
+            sta temp1
+            lda #$D0
             sta NOISE
             lda Score
             clc
@@ -950,7 +963,7 @@ alienshot:  lda #$D0
             sta Score+1
 @contadd:   txa
             sec
-            sbc AlienPosX
+            sbc temp1
             lsr
             tax
             lda #$01
@@ -1198,7 +1211,7 @@ DropBomb:   jsr GetRand
             txa
             asl
             clc
-            adc AlienPosX
+            adc PixPosX
             adc #$FF
             sta BombPosX,Y
 @nobomb:    rts
@@ -1372,16 +1385,23 @@ DrawChar:   cpx #16         ; Check if the X value is out of range
 ; Get the screen code of the character in the X and Y locations.
 ; The character is returned in A.
 
-GetChar:    stx PosX
+GetChar:    cpx #16         ; Check if the X value is out of range
+            bcs @exit       ; Exit if X greater than 16 (no of columns)
+            cpy #31         ; Check if the Y value is out of range
+            bcs @exit       ; Exit if Y greater than 31 (no of rows)
             sty PosY
             jsr PosChar
             ldy #0
             lda (POSCHARPT),Y
             ldy PosY
             rts
+@exit:      lda #EMPTY
+            rts
 
 ; Calculate the address of a screen position and put it in POSCHARPT. Do the
 ; same for the color address and put it in POSCOLPT.
+; X and Y contain screen coordinates.
+
 PosChar:    stx PosX
             lda #<MEMSCR
             sta POSCHARPT
@@ -1417,37 +1437,20 @@ PosChar:    stx PosX
 ;    BD
 ;
 ; Characters are redefined starting from address contained in SPRITECH
-; X the horizontal offset in pixels [0,8]
-; Y the vertical offset in pixels [0,8]
+; SpriteX: the horizontal offset in pixels [0,8]
+; SpriteY: the vertical offset in pixels [0,8]
+; CharCode: the character to be used for the sprite
 ; Employs SPRITECH pointer to the group of 4 ch. for a sprite (word)
 ; and CHRPTR pointer to the original ch. in a sprite (word)
 
-LoadSprite: sta CharCode        ; Save the character code and X, Y pos.
-            stx SpriteX
-            sty SpriteY
-            clc
+LoadSprite: clc
             lda SPRITECH        ; Calculate the vert. offset in ch. table
             adc SpriteY
             sta SPRITECH
             bcc @normal         ; Correct if page change
-            ldy SPRITECH+1
-            iny
-            sty SPRITECH+1
-@normal:    lda #<GRCHARS1      ; Charge the address of the ch. gen in CHARPTR
-            sta CHRPTR
-            lda #>GRCHARS1
-            sta CHRPTR+1
-            lda CharCode        ; Charge the ch. code to be used
-            asl                 ; Multiply it times 8
-            asl
-            asl
-            adc CHRPTR          ; Add to the CHRPTR (to get address of the ch.)
-            sta CHRPTR
-            bcc @normal1        ; Correct if page change
-            ldy CHRPTR+1
-            iny
-            sty CHRPTR+1
-@normal1:   ldy #0              ; Copy 8 bytes
+            inc SPRITECH+1
+@normal:    jsr CalcChGenOfs
+            ldy #0              ; Copy 8 bytes
 @loop1:     lda #0
             sta CharShr
             lda (CHRPTR),y      ; Charge source
@@ -1471,6 +1474,24 @@ LoadSprite: sta CharCode        ; Save the character code and X, Y pos.
             bne @loop1
             rts
 
+; Load CHRPTR and CHRPTR+1 with the address of the character generator area
+; corresponding to the character contained in CharCode
+
+CalcChGenOfs:
+            lda #<GRCHARS1      ; Charge the address of the ch. gen in CHARPTR
+            sta CHRPTR
+            lda #>GRCHARS1
+            sta CHRPTR+1
+            lda CharCode        ; Charge the ch. code to be used
+            asl                 ; Multiply it times 8
+            asl
+            asl
+            adc CHRPTR          ; Add to the CHRPTR (to get address of the ch.)
+            sta CHRPTR
+            bcc @normal        ; Correct if page change
+            inc CHRPTR+1
+@normal:    rts
+
 ; Clear the contents of a "sprite".
 ClearSprite:
             ldy #0
@@ -1489,7 +1510,7 @@ ClearSprite:
 ;             sta SPRITECH+1
 ;             jsr ClearSprite
 ; 
-;             lda PixShX
+;             lda SpriteX
 ;             tax
 ;             lda AlienPosY
 ;             and #7
@@ -1884,6 +1905,8 @@ DefChars:
             .byte %00010000
             .byte %00000000
             .byte %00010000
+            
+            SHOTMSK = %00010000 ; Mask for detecting a collision
 
             EXPLOSION1=11
             .byte %01000000     ; Block, ch. 11 (normally M)
