@@ -92,12 +92,21 @@
         CharShr   = $12     ; Employed in LoadSprite
         temp1     = $13     ; Shift in pixels from the character grid
         PixPosX   = $14     ; Position in characters
-        ;SpriteY    = $15     ; Shift in pixels from the character grid
+        ColourRead= $15     ; Colour read by GetChar
         POSCHARPT = $1A     ; Pointer for a character in memory (word)
         POSCOLPT  = $1C     ; Pointer for a colour in memory (word)
         Bombcntr  = $1E     ; Counter for bomb interrupts
-        PixPosXO   = $1F    ; Old Position in characters
-        TmpScan    = $20
+        PixPosXO  = $1F     ; Old Position in characters
+        TmpScan   = $20     ; Used in raster line sync code
+        Random    = $21     ; Position where to store a random word by GetRand
+        IrqCn     = $23     ; Counter for interrupt
+        keyin     = $24     ; Last key typed.
+        Val       = $25     ; Used for the BCD conversion (word)
+        Res       = $27     ; The result of the BCD conversion (3 bytes)
+        Joystick  = $2A     ; Different from zero if the joystick was used
+        MotherPos = $2B     ; Position of the mother ship ($FD: no ship)
+        Period    = $2C     ; Higher = slower alien movement
+        MotherCntr= $2D     ; Counter for slowing down mother ship
 
         INITVALC=$ede4
 
@@ -279,6 +288,8 @@ StartGame:
             lda #17
             sta AlienPosY   ; Initial position of aliens
             jsr DrawAliens
+            lda #$FD        ; No mother ship visible
+            sta MotherPos
             lda #$FF
             sta AlienPosYO
             sta AliensR1s
@@ -299,7 +310,10 @@ StartGame:
 @loopg:     sta BombSpeed-1,X
             lda #$FF
             sta BombPosOY-1,X
+            lda #EMPTY
+            sta FireChOver-1,X
             lda #$00
+            sta FireColOver-1,X
             dex
             bne @loopg
             ldx #NMSHOTS    ; Clear all shoots
@@ -314,6 +328,7 @@ StartGame:
             cli
             lda #32
             sta VoiceBase
+            jsr draw1l
             rts
 
 ; Put zero in the current score
@@ -470,9 +485,12 @@ IrqHandler: pha
             pha
             tya
             pha
+            lda MotherPos   ; If the mother ship is present, do not mute
+            cmp #$FD        ; sound effects
+            bne @nomute
             lda #$00
             sta EFFECTS
-            lda Win         ; If Win !=0 stop the game
+@nomute:    lda Win         ; If Win !=0 stop the game
             beq @contirq
             jmp @exitirq
 @contirq:   lda IrqCn
@@ -529,7 +547,7 @@ IrqHandler: pha
             lda #0
             sta Direction   ; Invert the direction
             inc AlienPosY   ; Increment the Y position of the aliens
-@cont3:     jsr draw1l
+@cont3:     
             lda CannonPos   ; Check if the cannon position has changed
             cmp OldCannonP
             beq @nochange
@@ -556,12 +574,22 @@ MotherSh:   lda MotherPos
             bne @moveship
             lda Random          ; Get a random number and check if it is less
             cmp #SHIPPROB       ; than a given threshold
-            bcc @exit
+            bcc @exitsh
             lda #$0F
             sta MotherPos
+            lda #0
+            sta MotherCntr
             rts
 
-@moveship:  tax
+@moveship:  ldx MotherCntr
+            cpx #3
+            beq @move
+            inc MotherCntr
+            rts
+
+@move:      ldx #0
+            stx MotherCntr
+            tax
             ldy #$1
             lda #$A0
             clc
@@ -587,7 +615,6 @@ MotherSh:   lda MotherPos
             inx
             lda #MOTHER3
             jsr DrawChar
-@exit:      rts
 @exitsh:    rts
 
 ; Draw the cannon on the screen, at the current position, contained in
@@ -809,6 +836,15 @@ AlienLoop:  ldy AlienCurrY
             bne @loop
             rts
 
+; Add the value contained in A to the current score
+
+AddScore:   clc
+            adc Score
+            sta Score
+            bcc @contadd
+            inc Score+1
+@contadd:   jsr draw1l
+            rts
 
 ; Control the movement of the bullet/laser shot fired by the cannon.
 
@@ -832,8 +868,6 @@ MoveShoots: ldx #0              ; Update the position of the shot
             cpx #NMSHOTS
             bne @loop
 DrawShots:  ldx #0              ; Draw shots
-            lda #YELLOW         ; Colour of the shots
-            sta Colour
 loop4:      stx tmpindex
             lda FirePosX,X
             sta tmpx            ; Store the X position of the shot
@@ -841,7 +875,9 @@ loop4:      stx tmpindex
             cmp FirePosY,X      ; Check if the shot should be redrawn
             beq notmove
             tay
-            lda #EMPTY          ; Erase the previous shot
+            lda FireColOver,X
+            sta Colour
+            lda FireChOver,X    ; Erase the previous shot
             ldx tmpx            ; Load the X position
             jsr DrawChar        ; Erase the shot in the old position
             ldx tmpindex
@@ -858,8 +894,17 @@ loop4:      stx tmpindex
             tay
             ldx tmpx
             jsr GetChar         ; Check for a collision
+            ldx tmpindex
+            sta FireChOver,X
+            pha
+            lda ColourRead
+            sta FireColOver,X
+            pla
+            ldx tmpx
             cmp #EMPTY
             bne collision
+            lda #YELLOW         ; Colour of the shots
+            sta Colour
             lda #SHOT
             jsr DrawChar        ; Draw the shot in the new position
 notmove:    ldx tmpindex
@@ -879,6 +924,14 @@ collision:  cmp #SPRITE1A
             beq alienshot
             cmp #SPRITE1D
             beq alienshot
+            
+            pha
+            ldy tmpindex
+            lda #EMPTY
+            sta FireChOver,y
+            ldy temp1
+            pla
+
             cmp #BLOCK
             beq bunkershot
             cmp #BLOCKR
@@ -897,6 +950,8 @@ backcoll:   jsr CheckWin
 ; Handle the different collisions.
 ; X and Y contain the position of the collision, also available in tmpx and
 ; tmpy respectively
+
+; Collision with the mother ship
 
 mothershot: txa
             pha
@@ -918,13 +973,12 @@ mothershot: txa
             ldx tmpindex
             sta FireSpeed,X
             sta FirePosY,X      ; This would cause a redraw erasing the shot
-            lda Score
-            clc
-            adc #$05
-            sta Score
-            bcc @norm
-            inc Score+1
-@norm:      jmp backcoll
+            lda #$05            ; Update the score: +50 pts
+            jsr AddScore
+            ldx tmpindex
+            jmp backcoll
+
+alienshot:  jmp checkalienshot  ; beq can not jump so far to reach it directly!
 
 bunkershot: lda #EXPLOSION1
             jsr DrawChar
@@ -932,36 +986,48 @@ bunkershot: lda #EXPLOSION1
             ldx tmpindex
             sta FireSpeed,X
             sta FirePosY,X      ; This would cause a redraw erasing the shot
+            lda #EMPTY
+            sta FireChOver,X
             jmp backcoll
 
-alienshot:  sty temp1
+; Handle a possible collision with an alien.
+
+checkalienshot:
+            sty temp1
             sta CharCode
             jsr CalcChGenOfs
             ldy #7
-            lda #SHOTMSK        ; Check collision between active pixels in the
-@loop:      and (CHRPTR),Y      ; sprite and the SHOTMSK
-            bne @realshot
-            dey
-            bne @loop
+@loop:      lda #SHOTMSK        ; Check collision between active pixels in the
             and (CHRPTR),Y      ; sprite and the SHOTMSK
             bne @realshot
-            rts
+            dey
+            cpy #$FF
+            bne @loop
+
+; No collision: blend the sprite with the shot and print it on screen
+
+            ldy #7
+@loop1:     lda GRCHARS1+SHOT*8,Y
+            ora (CHRPTR),Y
+            sta GRCHARS1+BLENDCH*8,Y
+            dey
+            cmp #$ff
+            bne @loop1
+            ldy temp1
+            lda ColourRead
+            sta Colour
+            lda #BLENDCH
+            jsr DrawChar
+            jmp backcoll
+
+; Here the collision with an alien is sure
 
 @realshot:  ldy temp1
             lda PixPosX
             sta temp1
             lda #$D0
             sta NOISE
-            lda Score
-            clc
-            adc #$01
-            sta Score
-            bcc @contadd
-            lda Score+1
-            clc
-            adc #$01
-            sta Score+1
-@contadd:   txa
+            txa
             sec
             sbc temp1
             lsr
@@ -980,27 +1046,38 @@ alienshot:  sty temp1
             sta tmp4
             pla
             cpy tmp4
+            beq @p1
+            dey
+            cpy tmp4
             bne @l2
-            eor AliensR1s       ; kill aliens with XOR!    ;-)
+@p1:        eor AliensR1s       ; kill aliens with XOR!    ;-)
             sta AliensR1s
             jmp @follow
+
 @l2:        inc tmp4
+            cpy tmp4
+            beq @p2
             inc tmp4
             cpy tmp4
             bne @l3
-            eor AliensR2s
+@p2:        eor AliensR2s
             sta AliensR2s
             jmp @follow
+
 @l3:        eor AliensR3s       ; Add here for more than three lines of aliens
             sta AliensR3s
 @follow:    ldx tmpx
             ldy tmpy
+            lda #YELLOW
+            sta Colour
             lda #EXPLOSION1
             jsr DrawChar
             lda #$FF
             ldx tmpindex
             sta FireSpeed,X
             sta FirePosY,X      ; This would cause a redraw erasing the shot
+            lda #1
+            jsr AddScore
             jmp backcoll
 
 ; Check if the player won the game.
@@ -1383,7 +1460,7 @@ DrawChar:   cpx #16         ; Check if the X value is out of range
 @exit:      rts
 
 ; Get the screen code of the character in the X and Y locations.
-; The character is returned in A.
+; The character is returned in A. The character colour is returned in Colour
 
 GetChar:    cpx #16         ; Check if the X value is out of range
             bcs @exit       ; Exit if X greater than 16 (no of columns)
@@ -1392,6 +1469,8 @@ GetChar:    cpx #16         ; Check if the X value is out of range
             sty PosY
             jsr PosChar
             ldy #0
+            lda (POSCOLPT),Y
+            sta ColourRead
             lda (POSCHARPT),Y
             ldy PosY
             rts
@@ -1677,15 +1756,6 @@ PrintBCD:   pha             ; Save the BCD value
 ;
 ; DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA
 
-Random:     .word $0000
-IrqCn:      .byte $00
-keyin:      .byte $00           ; Last key typed.
-Val:        .word $0000         ; Used for the BCD conversion
-Res:        .res 3, $00         ; The result of the BCD conversion
-Joystick:   .byte $00           ; Different from zero if the joystick was used
-
-MotherPos:  .byte $FD           ; Position of the mother ship ($FD: no ship)
-Period:     .byte 20            ; Higher = slower alien movement
 
 AliensR1s:  .byte $FF           ; Presence of aliens in row 1
 AliensR2s:  .byte $FF           ; Same for row 2
@@ -1719,6 +1789,9 @@ FireSpeed:  .res NMSHOTS, $00   ; Array containing the speed of the bullet sent
 FirePosX:   .res NMSHOTS, $00   ; Array with X positions of bullet
 FirePosY:   .res NMSHOTS, $00   ; Array with Y positions of bullet
 FirePosOY:  .res NMSHOTS, $00   ; Array with old Y positions of bullet
+FireChOver: .res NMSHOTS, $00   ; Array containing the character overwritten
+FireColOver:.res NMSHOTS, $00   ; Array containing the ch. colour overwritten
+
 
 ; Music data. Much is loop-based, to reduce mem occupation. 
 ; IMPROVE DESC!
@@ -1953,6 +2026,8 @@ DefChars:
             SPRITE1B = LASTCH+2
             SPRITE1C = LASTCH+3
             SPRITE1D = LASTCH+4
+            
+            BLENDCH = LASTCH+5
             
             
 
