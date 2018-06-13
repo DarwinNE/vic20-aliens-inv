@@ -59,6 +59,7 @@
         GREEN    = $05
         BLUE     = $06
         YELLOW   = $07
+        MULTICOLOUR = $08
 
 ; KERNAL routines used
         GETIN = $FFE4
@@ -90,7 +91,7 @@
         SpriteX   = $10     ; X position (offset in a char) of a sprite (byte)
         SpriteY   = $11     ; Y position (offset in a char) of a sprite (byte)
         CharShr   = $12     ; Employed in LoadSprite
-        temp1     = $13     ; Shift in pixels from the character grid
+        temp1     = $13     ; Yet another temporary variable
         PixPosX   = $14     ; Position in characters
         ColourRead= $15     ; Colour read by GetChar
         POSCHARPT = $1A     ; Pointer for a character in memory (word)
@@ -283,7 +284,7 @@ CenterScreenNTSC:
 
 StartGame:
             sei
-            lda #$0F        ; Turn on the volume
+            lda #$9F        ; Turn on the volume, set multicolour add. colour 9
             sta VOLUME
             lda #17
             sta AlienPosY   ; Initial position of aliens
@@ -295,16 +296,14 @@ StartGame:
             sta AliensR1s
             sta AliensR2s
             sta AliensR3s
+            sta OldCannonP
             lda #64
             sta CannonPos   ; Initial position of the cannon
-            lda #$FF
-            sta OldCannonP
             lda #$00
             sta Direction
             sta Win
             sta IrqCn
             sta NOISE
-            lda #0
             sta AlienPosX
             ldx #NMBOMBS    ; Clear all bombs
 @loopg:     sta BombSpeed-1,X
@@ -317,7 +316,9 @@ StartGame:
             dex
             bne @loopg
             ldx #NMSHOTS    ; Clear all shoots
-@loopp:     sta FireSpeed-1,X
+@loopp:     sta FireSpeed-1,x
+            sta FirePosX-1,x
+            sta FirePosY-1,x
             dex
             bne @loopp
             lda #EMPTY      ; Clear the screen
@@ -328,8 +329,7 @@ StartGame:
             cli
             lda #32
             sta VoiceBase
-            jsr draw1l
-            rts
+            jmp draw1l
 
 ; Put zero in the current score
 
@@ -415,7 +415,7 @@ draw1l:
             lda Score+1
             cmp HiScore+1
             bcc @noupdate
-            jsr UpdateHiSc  
+            jsr UpdateHiSc
 @noupdate:  lda HiScore     ; Load the current hi score and convert it to BCD
             sta Val
             lda HiScore+1
@@ -444,8 +444,7 @@ UpdateHiSc: ;rts     ; DEBUG
 ; Copy the graphic chars. They are subjected to be changed during the pixel-by
 ; pixel movement, so that routine gives only the initial situation.
 
-MovCh:
-            ldx #(LASTCH+1)*8+1
+MovCh:      ldx #(LASTCH+1)*8+1
 @loop:      lda DefChars-1,x
             sta GRCHARS1-1,x
             dex
@@ -487,7 +486,7 @@ IrqHandler: pha
             pha
             lda MotherPos   ; If the mother ship is present, do not mute
             cmp #$FD        ; sound effects
-            bne @nomute
+            bne @nomute     ; If the mother ship is present, do not mute SFX
             lda #$00
             sta EFFECTS
 @nomute:    lda Win         ; If Win !=0 stop the game
@@ -499,22 +498,24 @@ IrqHandler: pha
             jmp @cont3
 @contint:   lda #$0
             sta IrqCn
-            inc Bombcntr
             sta NOISE
-            lda Bombcntr
-            cmp #3
-            bcc @skipbombs
-            lda #0
-            sta Bombcntr
-            jsr FallBombs   ; Make bombs fall. Aliens will be on top of bombs
-@skipbombs: lda Win         ; If Win !=0 stop the game
-            bne @exitirq
             lda VoiceBase
             bmi @nomusic
             lda AlienPosY
             lsr
             lsr
 @nomusic:   sta VoiceBase
+            jsr EraseAliens
+            inc Bombcntr
+            lda Bombcntr
+            cmp #3
+            bcc @skipbombs
+            lda #0
+            sta Bombcntr
+            jsr FallBombs   ; Make bombs fall. Aliens will be on top of bombs
+@skipbombs:
+            lda Win         ; If Win !=0 stop the game
+            bne @exitirq
             lda Direction   ; Increment or decrement the X position,
             bne @negative   ; depending on the Direction value
 @positive:  inc AlienPosX   ; The position should be increased
@@ -601,10 +602,7 @@ MotherSh:   lda MotherPos
             inx
             inx
             jsr DrawChar    ; Erase
-            lda MotherPos   ; Update the position of the ship
-            sec
-            sbc #$01
-            sta MotherPos
+            dec MotherPos
             beq @exitsh
             ldx MotherPos   ; Draw the ship
             lda #MOTHER1
@@ -641,17 +639,17 @@ ClearCannon:
             lsr
             tax
             ldy #30             ; Vertical position of the cannon
+            lda CannonPos       ; Update the OldCannonP to the current pos.
+            sta OldCannonP
             lda #WHITE          ; Cannon in white
             sta Colour
             lda #EMPTY          ; Space
-            jsr DrawChar
-            lda CannonPos   ; Update the OldCannonP value to the current pos.
-            sta OldCannonP
-            rts
+            jmp DrawChar
 
 ; Erase aliens. Calculate AlienCurrY (in chars)
 
-EraseAliens: 
+EraseAliens:
+            jsr Waitrast
             lda AlienPosY
             lsr
             lsr
@@ -723,7 +721,12 @@ CalcXpos:   lda AlienPosX      ; Sprite generating code starts here
 ; The vertical position of the aliens should be in AliensPosY (in pixels) and
 ; AlienCurrY (in chars) should have been already calculated.
 
-DrawAliens: jsr CalcXpos
+DrawAliens: lda AlienPosY       ; The position is in pixel, divide by 8
+            lsr                 ; to obtain position in characters
+            lsr
+            lsr
+            sta AlienCurrY
+            jsr CalcXpos
             lda AlienPosY
             and #7
             sta SpriteY
@@ -732,27 +735,8 @@ DrawAliens: jsr CalcXpos
             lda #>(GRCHARS1+(LASTCH+1)*8)
             sta SPRITECH+1
 
-; PAL-only code here!
+            jsr Waitrast
 
-@waitrast:  lda VICRAST   ; Wait if there is a risk of flicker
-            lsr
-            lsr
-            sec
-            sta TmpScan
-            sbc #11
-            bpl @greater
-            lda #0
-@greater:   cmp AlienCurrY
-            bcs @noflicker
-            lda TmpScan
-            cmp AlienCurrY
-            bcc @noflicker
-            bcs @waitrast
-@noflicker:
-
-; End of PAL-only code
-
-            jsr EraseAliens
             jsr ClearSprite
             lda AlienCode1
             sta CharCode
@@ -787,6 +771,26 @@ DrawAliens: jsr CalcXpos
             lda AliensR3s
             sta AliensR
             jmp AlienLoop
+
+; PAL-only code here!
+
+Waitrast:   lda VICRAST   ; Wait if there is a risk of flicker
+            lsr
+            lsr
+            sec
+            sta TmpScan
+            sbc #11
+            bpl @greater
+            lda #0
+@greater:   cmp AlienCurrY
+            bcs @noflicker
+            lda TmpScan
+            cmp AlienCurrY
+            bcc @noflicker
+            bcs Waitrast
+@noflicker: rts
+
+; End of PAL-only code
 
 ; Draw a line of aliens (the sprite should have been already created)
 
@@ -917,19 +921,16 @@ notmove:    ldx tmpindex
 ; been encountered by the bullet. A contains the character that has been found
 
 collision:  cmp #SPRITE1A
-            beq alienshot
-            cmp #SPRITE1B
-            beq alienshot
-            cmp #SPRITE1C
-            beq alienshot
+            bmi @noalien
             cmp #SPRITE1D
-            beq alienshot
+            bpl @noalien
+            jmp checkalienshot
             
-            pha
+@noalien:   pha
             ldy tmpindex
             lda #EMPTY
             sta FireChOver,y
-            ldy temp1
+            ldy tmpy
             pla
 
             cmp #BLOCK
@@ -965,6 +966,8 @@ mothershot: txa
             jsr DrawChar
             pla
             tax
+            lda #YELLOW+MULTICOLOUR
+            sta Colour
             lda #EXPLOSION1
             jsr DrawChar
             lda #$FD
@@ -978,9 +981,9 @@ mothershot: txa
             ldx tmpindex
             jmp backcoll
 
-alienshot:  jmp checkalienshot  ; beq can not jump so far to reach it directly!
-
-bunkershot: lda #EXPLOSION1
+bunkershot: lda #RED+MULTICOLOUR
+            sta Colour
+            lda #EXPLOSION1
             jsr DrawChar
             lda #$FF
             ldx tmpindex
@@ -993,7 +996,6 @@ bunkershot: lda #EXPLOSION1
 ; Handle a possible collision with an alien.
 
 checkalienshot:
-            sty temp1
             sta CharCode
             jsr CalcChGenOfs
             ldy #7
@@ -1013,7 +1015,7 @@ checkalienshot:
             dey
             cmp #$ff
             bne @loop1
-            ldy temp1
+            ldy tmpy
             lda ColourRead
             sta Colour
             lda #BLENDCH
@@ -1022,14 +1024,14 @@ checkalienshot:
 
 ; Here the collision with an alien is sure
 
-@realshot:  ldy temp1
+@realshot:  ldy tmpy
             lda PixPosX
             sta temp1
             lda #$D0
             sta NOISE
             txa
             sec
-            sbc temp1
+            sbc PixPosX
             lsr
             tax
             lda #$01
@@ -1068,7 +1070,7 @@ checkalienshot:
             sta AliensR3s
 @follow:    ldx tmpx
             ldy tmpy
-            lda #YELLOW
+            lda #YELLOW+MULTICOLOUR
             sta Colour
             lda #EXPLOSION1
             jsr DrawChar
@@ -1138,10 +1140,10 @@ GameOver:   lda #$00            ; Mute all effects
             jsr PaintColour
             lda #$B0            ; Explosion sound
             sta NOISE
-            lda #$0F
+            lda #$FF
 @loop:      jsr ShortDelay
             sec
-            sbc #$01
+            sbc #$11
             sta VOLUME
             bne @loop
             lda #$00
@@ -1982,14 +1984,14 @@ DefChars:
             SHOTMSK = %00010000 ; Mask for detecting a collision
 
             EXPLOSION1=11
-            .byte %01000000     ; Block, ch. 11 (normally M)
-            .byte %10010010
-            .byte %01000100
-            .byte %0011100
-            .byte %10011010
-            .byte %10110001
-            .byte %01100011
-            .byte %10000001
+            .byte %10000000     ; Block, ch. 11 (normally M)
+            .byte %00100010
+            .byte %10010000
+            .byte %00110100
+            .byte %11101110
+            .byte %00110000
+            .byte %00110011
+            .byte %10000010
 
             MOTHER1=12
             .byte %00000000     ; Mother ship 1
