@@ -118,6 +118,18 @@
         AlienCode1= $35     ; Character for alien row 1
         AlienCode2= $36     ; Character for alien row 2
         AlienCode3= $37     ; Character for alien row 3
+        AlienPosX = $38     ; Horizontal position of aliens (in pixels)
+        AlienMaxX = $39     ; Maximum position in X of aliens (in characters)
+        AlienMinX = $3A     ; Minimum position in X of aliens (in characters)
+        AlienPosY = $3B     ; Vertical position of aliens (in pixels)
+        AlienPosYO= $3C     ; Previous (old) vertical position of aliens (px)
+        AlienCurrY= $3D     ; Vertical (temp) position of alien being drawn (ch)
+        Direction = $3E     ; The first bit indicates aliens' X direction
+        CannonPos = $3F     ; Horizontal position of the cannon (in pixels)
+        OldCannonP= $40     ; Old position of the cannon
+        Win       = $41     ; If 1, the level is won. If $FF, game over
+        Score     = $42     ; Current score (divided by 10) (word)
+        HiScore   = $44     ; High Score (divided by 10) (word)
 
         INITVALC=$ede4
 
@@ -259,7 +271,7 @@ Init:
             sta VICROWNC
             lda INITVALC
             cmp #$05
-            beq CenterScreenNTSC
+            beq CenterScreenNTSC    ; Centre the screen
             bne CenterScreenPAL
 ContInit:   sty VICSCRVE
             stx VICSCRHO
@@ -292,7 +304,12 @@ CenterScreenNTSC:
 
 StartGame:
             sei
-            lda #$9F        ; Turn on the volume, set multicolour add. colour 9
+            lda #<EndMemMrk
+            sta HiScore
+            lda #>EndMemMrk
+            sta HiScore+1
+            
+            lda #$2F        ; Turn on the volume, set multicolour add. colour 2
             sta VOLUME
             lda #17
             sta AlienPosY   ; Initial position of aliens
@@ -314,19 +331,21 @@ StartGame:
             sta NOISE
             sta AlienPosX
             ldx #NMBOMBS    ; Clear all bombs
-@loopg:     sta BombSpeed-1,X
+@loopg:     LDA #$0
+            sta BombSpeed-1,X
             lda #$FF
             sta BombPosOY-1,X
             lda #EMPTY
-            sta FireChOver-1,X
-            lda #$00
-            sta FireColOver-1,X
             dex
             bne @loopg
             ldx #NMSHOTS    ; Clear all shoots
-@loopp:     sta FireSpeed-1,x
+@loopp:     lda #$00
+            sta FireSpeed-1,x
             sta FirePosX-1,x
             sta FirePosY-1,x
+            sta FireColOver-1,X
+            lda #EMPTY
+            sta FireChOver-1,X
             dex
             bne @loopp
             lda #EMPTY      ; Clear the screen
@@ -491,27 +510,28 @@ IrqHandler: pha
             pha
             tya
             pha
+            ldx #$00
             lda MotherPos   ; If the mother ship is present, do not mute
             cmp #$FD        ; sound effects
             bne @nomute     ; If the mother ship is present, do not mute SFX
-            lda #$00
-            sta EFFECTS
-@nomute:    lda Win         ; If Win !=0 stop the game
-            beq @contirq
+            stx EFFECTS
+@nomute:    bit Win         ; If Win <0 stop the game
+            bpl @contirq
             jmp @exitirq
 @contirq:   lda IrqCn
             cmp Period      ; Execute every PERIOD/60 of second
             beq @contint
             jmp @cont3
-@contint:   lda #$0
-            sta IrqCn
-            sta NOISE
+@contint:   stx IrqCn
+            stx NOISE
             lda VoiceBase
             bmi @nomusic
             lda AlienPosY
             lsr
             lsr
 @nomusic:   sta VoiceBase
+            lsr
+            sta AlienPosYc
             jsr EraseAliens
             inc Bombcntr
             lda Bombcntr
@@ -521,35 +541,42 @@ IrqHandler: pha
             sta Bombcntr
             jsr FallBombs   ; Make bombs fall. Aliens will be on top of bombs
 @skipbombs:
-            lda AlienPosY
-            lsr
-            lsr
-            lsr
-            sta AlienPosYc
-            lda Win         ; If Win !=0 stop the game
-            bne @exitirq
-            lda Direction   ; Increment or decrement the X position,
-            bne @negative   ; depending on the Direction value
+            bit Win         ; If Win <0 stop the game
+            bmi @exitirq
+            bit Direction   ; Increment or decrement the X position,
+            bmi @negative   ; depending on the Direction value
 @positive:  inc AlienPosX   ; The position should be increased
             jmp @cont
 @negative:  dec AlienPosX   ; The position should be decreased
-@cont:      lda AlienPosY   ; Check if the aliens came to bottom of screen
-            cmp #28*8
+@cont:      ldx AlienPosY   ; Check if the aliens came to bottom of screen
+            lda AliensR3s
+            bne @comp
+            inx
+            inx
+            lda AliensR2s
+            bne @comp
+            inx
+            inx
+@comp:      cpx #26*8
             bne @draw
             jsr GameOver    ; In this case, the game is finished
-@draw:      lda AlienPosY
+@draw:      lda PixPosX
             ror
             bcs @altaliens
             lda #ALIEN1
             sta AlienCode1
+            lda #ALIEN3
+            sta AlienCode2
             bcc @normal
 @altaliens: lda #ALIEN2
             sta AlienCode1
+            lda #ALIEN4
+            sta AlienCode2
 @normal:    jsr DrawAliens
             lda AlienMaxX   ; Check if the direction should be reversed
             cmp #15
             bmi @cont2
-            lda #1
+            lda #128
             sta Direction   ; Invert the direction
             inc AlienPosY   ; Increment the Y position of the aliens
 @cont2:     lda AlienMinX   ; Check if the direction should be reversed
@@ -560,8 +587,7 @@ IrqHandler: pha
             lda #0
             sta Direction   ; Invert the direction
             inc AlienPosY   ; Increment the Y position of the aliens
-@cont3:     
-            lda CannonPos   ; Check if the cannon position has changed
+@cont3:     lda CannonPos   ; Check if the cannon position has changed
             cmp OldCannonP
             beq @nochange
             jsr ClearCannon
@@ -735,9 +761,9 @@ DrawAliens:
             lda AlienPosY
             and #7
             sta SpriteY
-            lda #<(GRCHARS1+(LASTCH+1)*8)
+            lda #<(GRCHARS1+SPRITE1A*8)
             sta SPRITECH
-            lda #>(GRCHARS1+(LASTCH+1)*8)
+            lda #>(GRCHARS1+SPRITE1A*8)
             sta SPRITECH+1
 
             jsr Waitrast
@@ -746,6 +772,15 @@ DrawAliens:
             lda AlienCode1
             sta CharCode
             jsr LoadSprite      ; End of sprite gen code
+            
+            lda #<(GRCHARS1+SPRITE2A*8)
+            sta SPRITECH
+            lda #>(GRCHARS1+SPRITE2A*8)
+            sta SPRITECH+1
+            jsr ClearSprite
+            lda AlienCode2
+            sta CharCode
+            jsr LoadSprite
 
             lda #$ff            ; Reset the min/max positions of aliens in ch.
             sta AlienMinX
@@ -754,7 +789,7 @@ DrawAliens:
 
             lda AliensR1s       ; Top line of aliens
             sta AliensR
-            lda #(LASTCH+1)     ; AlienCode1
+            lda #SPRITE1A      ; AlienCode1
             sta CharCode
             lda #RED
             sta Colour
@@ -762,6 +797,8 @@ DrawAliens:
 
             inc AlienCurrY      ; Second line of aliens
             inc AlienCurrY
+            lda #SPRITE2A      ; AlienCode1
+            sta CharCode
             lda #CYAN
             sta Colour
             lda AliensR2s
@@ -773,6 +810,8 @@ DrawAliens:
 
             lda #GREEN
             sta Colour
+            lda #SPRITE1A      ; AlienCode1
+            sta CharCode
             lda AliensR3s
             sta AliensR
             jmp AlienLoop
@@ -931,7 +970,7 @@ notmove:    ldx tmpindex
 
 collision:  cmp #SPRITE1A
             bmi @noalien
-            cmp #SPRITE1D
+            cmp #SPRITE2D
             bpl @noalien
             jmp checkalienshot
             
@@ -1771,20 +1810,6 @@ PrintBCD:   pha             ; Save the BCD value
 ;
 ; DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA
 
-
-AlienPosX:  .byte $00           ; Horizontal position of aliens (in pixels)
-AlienMaxX:  .byte $00
-AlienMinX:  .byte $00
-AlienPosY:  .byte $00           ; Vertical position of aliens (in pixels)
-AlienPosYO: .byte $00
-AlienCurrY: .byte $00           ; Vertical position of alien being drawn
-Direction:  .byte $00           ; The first bit indicates aliens' X direction
-CannonPos:  .byte $8*8          ; Horizontal position of the cannon (in pixels)
-OldCannonP: .byte $00           ; Old position of the cannon
-Win:        .byte $00           ; If 1, the level is won. If $FF, game over
-Score:      .word $0000         ; Current score (divided by 10)
-HiScore:    .word $0000         ; High Score (divided by 10)
-
 BombSpeed:  .res NMBOMBS, $00   ; Array containing the speed of the bombs sent
 BombPosX:   .res NMBOMBS, $00   ; Array with X positions of bombs
 BombPosY:   .res NMBOMBS, $00   ; Array with Y positions of bombs
@@ -1871,7 +1896,6 @@ YouWonSt:   .byte (25+$80), (15+$80), (21+$80), (32+$80), (23+$80), (15+$80)
 
 GameOverSt: .byte (7+$80), (1+$80), (13+$80), (5+$80), (32+$80), (15+$80)
             .byte (22+$80), (5+$80), (18+$80), 0
-            
 
 DefChars:
             ALIEN1 = 0
@@ -1937,9 +1961,9 @@ DefChars:
             BOMB = 6
             .byte %00000000     ; Bomb, associated to ch. 6 (normally F)
             .byte %00000000
-            .byte %00000000
+            .byte %00100100
             .byte %00011000
-            .byte %00000000
+            .byte %00100100
             .byte %00000000
             .byte %00000000
             .byte %00000000
@@ -2032,7 +2056,17 @@ DefChars:
             SPRITE1C = LASTCH+3
             SPRITE1D = LASTCH+4
             
-            BLENDCH = LASTCH+5
+            ; The sprites characters should be continuous.
+            ; This simplifies collision detection.
+            
+            SPRITE2A = LASTCH+5
+            SPRITE2B = LASTCH+6
+            SPRITE2C = LASTCH+7
+            SPRITE2D = LASTCH+8
+            
+            BLENDCH = LASTCH+9
+            
+            
             
             
 
