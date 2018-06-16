@@ -125,7 +125,7 @@
         AlienPosYO= $3C     ; Previous (old) vertical position of aliens (px)
         AlienCurrY= $3D     ; Vertical (temp) position of alien being drawn (ch)
         Direction = $3E     ; The first bit indicates aliens' X direction
-        CannonPos = $3F     ; Horizontal position of the cannon (in pixels)
+        CannonPos = $3F     ; Horizontal position of the cannon (in characters)
         OldCannonP= $40     ; Old position of the cannon
         Win       = $41     ; If 1, the level is won. If $FF, game over
         Score     = $42     ; Current score (divided by 10) (word)
@@ -170,8 +170,7 @@
 
 ; Main program here.
 
-main:
-            jsr Init        ; Init the game (load graphic chars, etc...)
+main:       jsr Init        ; Init the game (load graphic chars, etc...)
 restart:    jsr StartGame   ; Set the starting values of game variables
 mainloop:   lda Joystick
             beq @ccc
@@ -208,28 +207,26 @@ mainloop:   lda Joystick
             cmp #$20        ; Space: fire!
             beq fire
             cmp #$4D        ; M toggle music on/off
-            bne @continue4
+            bne mainloop
             lda VoiceBase
             eor #$80
             sta VoiceBase
 @continue4: jmp mainloop
 
-right:      lda #$08
-            clc
-            adc CannonPos
-            sta CannonPos
-            cmp #$7F
+right:      inc CannonPos
+            lda CannonPos
+            cmp #15
             bcc @continue
-            lda #$7F
+            lda #15
             sta CannonPos
 @continue:  jmp mainloop
 
-left:       lda CannonPos
-            sec
-            sbc #$08
-            bcc @continue
+left:       dec CannonPos
+            bmi @zeroc
+            jmp mainloop
+@zeroc:     lda #0
             sta CannonPos
-@continue:  jmp mainloop
+            jmp mainloop
 
 fire:       jsr CannonShoot
             jmp mainloop
@@ -243,9 +240,6 @@ CannonShoot:
             bne @search
             rts             ; No enough shots allowed in parallel. Abort fire.
 @found:     lda CannonPos
-            lsr
-            lsr
-            lsr
             sta FirePosX,X  ; Put the actual cannon position in the X coord.
             lda #30         ; Shoot from the last line
             sta FirePosY,X
@@ -271,10 +265,10 @@ Init:
             sta VICROWNC
             lda INITVALC
             cmp #$05
-            beq CenterScreenNTSC    ; Centre the screen
+            beq CenterScreenNTSC    ; Load the screen settings
             bne CenterScreenPAL
-ContInit:   sty VICSCRVE
-            stx VICSCRHO
+ContInit:   sty VICSCRVE    ; Centre the screen vertically...
+            stx VICSCRHO    ; ... and horizontally
             lda #$FF        ; Move the character generator address to $1C00
             sta VICCHGEN    ; while leaving ch. 128-255 to their original pos.
             jsr MovCh       ; Load the graphic chars
@@ -292,22 +286,24 @@ ContInit:   sty VICSCRVE
             sta PORTBVIA2d
             rts
 
+; Screen init value for PAL and NTSC
+
 CenterScreenPAL:
-            ldy #$16        ; Centre the screen vertically...
-            ldx #$12        ; ... and horizontally
+            ldx #$12        
+            ldy #$16        
             jmp ContInit
 
 CenterScreenNTSC:
-            lda #$06        ; Centre the screen vertically...
-            lda #$9        ; ... and horizontally
+            ldx #$0A        
+            ldy #$6        
             jmp ContInit
 
 StartGame:
             sei
-            lda #<EndMemMrk
-            sta HiScore
-            lda #>EndMemMrk
-            sta HiScore+1
+            lda #<EndMemMrk ; DEBUG
+            sta HiScore     ; DEBUG
+            lda #>EndMemMrk ; DEBUG
+            sta HiScore+1   ; DEBUG
             
             lda #$2F        ; Turn on the volume, set multicolour add. colour 2
             sta VOLUME
@@ -322,7 +318,7 @@ StartGame:
             sta AliensR2s
             sta AliensR3s
             sta OldCannonP
-            lda #64
+            lda #8
             sta CannonPos   ; Initial position of the cannon
             lda #$00
             sta Direction
@@ -423,19 +419,10 @@ draw1l:
             sta Val+1
             jsr Bin2BCD
             lda #WHITE
-            sta Colour
             ldx #0
-            ldy #0
-            lda Res+2       ; Print all the BCD chars
-            jsr PrintBCD
-            lda Res+1
-            jsr PrintBCD
-            lda Res
-            jsr PrintBCD
+            jsr PrintRes
             lda #(48+$80)   ; Write a zero, to multiply x10 the score
             jsr DrawChar
-            inx
-            inx
             lda Score       ; Update the high score if needed
             cmp HiScore
             bcc @noupdate
@@ -449,15 +436,8 @@ draw1l:
             sta Val+1
             jsr Bin2BCD
             ldx #08
-            ldy #00
             lda #CYAN
-            sta Colour
-            lda Res+2       ; Print all the BCD chars
-            jsr PrintBCD
-            lda Res+1
-            jsr PrintBCD
-            lda Res
-            jsr PrintBCD
+            jsr PrintRes
             lda #(48+$80)   ; Write an additional zero
             jmp DrawChar
 
@@ -465,6 +445,16 @@ UpdateHiSc: lda Score       ; Update the high score
             sta HiScore
             lda Score+1
             sta HiScore+1
+            rts
+
+PrintRes:   sta Colour
+            ldy #0
+            lda Res+2       ; Print all the BCD chars
+            jsr PrintBCD
+            lda Res+1
+            jsr PrintBCD
+            lda Res
+            jsr PrintBCD
             rts
 
 ; Copy the graphic chars. They are subjected to be changed during the pixel-by
@@ -486,7 +476,7 @@ MovCh:      ldx #(LASTCH+1)*8+1
 ; 2 - Calculate positions of the falling bombs and fire shoots and draw them
 ; 3 - Update the position of the cannon and draw it
 ; 5 - Check for collisions and handle explosions
-; 6 - Call the sound driver
+; 6 - Call the sound drivers
 ; 7 - Jump to the original IRQ handler (for scanning the keyboard, etc).
 ;
 ; The user interface is handled outside of the interrupt, in the main program
@@ -496,7 +486,7 @@ MovCh:      ldx #(LASTCH+1)*8+1
 ; - The speed of the aliens and of the cannon is controlled very precisely as
 ;   the IRQ handler is called at a predictable and stable rate.
 ; - The code for the visualization and for the user interface (i.e. recognizing
-;   the joystick movements) is kept separate.
+;   keyboard and joystick movements) is kept separate.
 ;
 ; The main drawback is that the IRQ is supposed to do many things and it should
 ; be doing that VERY RAPIDLY in order not to mess with the calling order. As a
@@ -510,6 +500,10 @@ IrqHandler: pha
             pha
             tya
             pha
+@still:     ; lda VICRAST
+;             bne @still
+;             lda #09         ; DEBUG
+;             sta VICCOLOR    ; DEBUG
             ldx #$00
             lda MotherPos   ; If the mother ship is present, do not mute
             cmp #$FD        ; sound effects
@@ -524,23 +518,16 @@ IrqHandler: pha
             jmp @cont3
 @contint:   stx IrqCn
             stx NOISE
-            lda VoiceBase
-            bmi @nomusic
             lda AlienPosY
             lsr
             lsr
-@nomusic:   sta VoiceBase
-            lsr
+            bit VoiceBase   ; If music is active, VoiceBase is linked to the
+            bmi @nomusic    ; vertical alien position (music becomes higher
+            sta VoiceBase   ; pitched when aliens scroll down).
+@nomusic:   lsr
             sta AlienPosYc
             jsr EraseAliens
-            inc Bombcntr
-            lda Bombcntr
-            cmp #3
-            bcc @skipbombs
-            lda #0
-            sta Bombcntr
             jsr FallBombs   ; Make bombs fall. Aliens will be on top of bombs
-@skipbombs:
             bit Win         ; If Win <0 stop the game
             bmi @exitirq
             bit Direction   ; Increment or decrement the X position,
@@ -557,7 +544,7 @@ IrqHandler: pha
             bne @comp
             inx
             inx
-@comp:      cpx #26*8
+@comp:      cpx #25*8
             bne @draw
             jsr GameOver    ; In this case, the game is finished
 @draw:      lda PixPosX
@@ -590,13 +577,15 @@ IrqHandler: pha
 @cont3:     lda CannonPos   ; Check if the cannon position has changed
             cmp OldCannonP
             beq @nochange
-            jsr ClearCannon
-@nochange:  jsr DrawCannon
-            jsr MoveShoots  ; Update the position of cannon shots
+            jsr ClearCannon ; If yes, redraw it
+            jsr DrawCannon
+@nochange:  jsr MoveShoots  ; Update the position of cannon shots
             inc IrqCn
             jsr MotherSh    ; Check if we should enter the mother ship
 @exitirq:   jsr Music1
             jsr Music2
+            lda #08         ; DEBUG
+            sta VICCOLOR    ; DEBUG
             pla             ; Restore registers
             tay
             pla
@@ -654,12 +643,10 @@ MotherSh:   lda MotherPos
 @exitsh:    rts
 
 ; Draw the cannon on the screen, at the current position, contained in
-; CannonPos (in pixels).
+; CannonPos (in characters).
 
 DrawCannon: lda CannonPos
-            lsr                 ; The position is in pixel, divide by 8
-            lsr                 ; to obtain position in characters
-            lsr
+            sta OldCannonP
             tax
             ldy #30             ; Vertical position of the cannon
             lda #WHITE          ; Cannon in white
@@ -668,17 +655,12 @@ DrawCannon: lda CannonPos
             jmp DrawChar
 
 ; Clear the cannon on the screen, at the current position, contained in
-; OldCannonP (in pixels).
+; OldCannonP (in characters).
 
 ClearCannon:
             lda OldCannonP
-            lsr                 ; The position is in pixel, divide by 8
-            lsr                 ; to obtain position in characters
-            lsr
             tax
             ldy #30             ; Vertical position of the cannon
-            lda CannonPos       ; Update the OldCannonP to the current pos.
-            sta OldCannonP
             lda #WHITE          ; Cannon in white
             sta Colour
             lda #EMPTY          ; Space
@@ -687,11 +669,25 @@ ClearCannon:
 ; Erase aliens. Calculate AlienCurrY (in chars)
 
 EraseAliens:
-            jsr Waitrast
+            ;jsr Waitrast
             ldy AlienPosYc
             dey
-            ldx #0
-            jsr PosChar
+            
+            lda #<MEMSCR    ; Inlined version of CharPos without colour
+            sta POSCHARPT
+            lda #>MEMSCR
+            sta POSCHARPT+1
+            tya
+            asl             ; 16 columns per line. Multiply!
+            asl
+            asl
+            asl             ; If it shifts an 1 in the carry, this means that
+            bcc @nocorr     ; we need to write in the bottom-half of the screen
+            inc POSCHARPT+1
+            clc
+@nocorr:    adc POSCHARPT
+            sta POSCHARPT
+            
             ldy #16*7
             lda #EMPTY
 @loop:      sta (POSCHARPT),y   ; A little bit of loop unrolling
@@ -766,7 +762,7 @@ DrawAliens:
             lda #>(GRCHARS1+SPRITE1A*8)
             sta SPRITECH+1
 
-            jsr Waitrast
+            ;jsr Waitrast
 
             jsr ClearSprite
             lda AlienCode1
@@ -847,7 +843,7 @@ AlienLoop:  ldy AlienCurrY
             bcc @ret
             txa
             clc
-            adc PixPosX     ; To be added o the pos. in characters
+            adc PixPosX     ; To be added to the pos. in characters
             tay             ; to obtain the actual position where to draw al.
             dey
             cpy AlienMinX   ; Update the minimum and maximum value of positions
@@ -879,7 +875,6 @@ AlienLoop:  ldy AlienCurrY
             lda CharCode
             adc #3
             sta (POSCHARPT),Y       ; Sprite char D
-@exit:
 @ret:       dex
             bne @loop
             rts
@@ -899,19 +894,18 @@ AddScore:   clc
 MoveShoots: ldx #0              ; Update the position of the shot
 @loop:      lda FireSpeed,X     ; Check if the shot is active (speed!=0)
             beq @cont
+            dec FirePosY,X
             lda FirePosY,X
-            ora #$80
-            sta EFFECTS         ; Sound effect: peeewwww!!!
-            lda FirePosY,X
-            sec                 ; If speed >0, update current Y position
-            sbc FireSpeed,X     ; The movement is vertical, subtract
             cmp #1              ; Check if we reached the top of the screen
             bcs @stillf
             lda #$0             ; Here we reached the top of the screen
             sta EFFECTS
             lda #$FF            ; In this case, destroy the bomb
             sta FireSpeed,X
-@stillf:    sta FirePosY,X
+            sta FirePosY,X
+            bmi @cont
+@stillf:    ora #$80
+            sta EFFECTS         ; Sound effect: peeewwww!!!
 @cont:      inx
             cpx #NMSHOTS
             bne @loop
@@ -993,6 +987,7 @@ collision:  cmp #SPRITE1A
             beq mothershot
             cmp #MOTHER3
             beq mothershot
+            jmp notmove
 backcoll:   jsr CheckWin
             jmp notmove
 
@@ -1228,7 +1223,13 @@ GameOver:   lda #$00            ; Mute all effects
 ; 3 - Draw the bombs in the new positions on the screen.
 ;
 
-FallBombs:  lda AliensR1s
+FallBombs:  inc Bombcntr
+            lda Bombcntr
+            cmp #3
+            bcc DrawBombs
+            lda #0
+            sta Bombcntr
+            lda AliensR1s
             sta AliensR1
             lda AliensR2s
             sta AliensR2
@@ -1252,7 +1253,7 @@ FallBombs:  lda AliensR1s
             bne @loop2
 
             ldx #NMBOMBS        ; Update the position of the bombs
-@loop3:     lda BombSpeed-1,X     ; Check that the bomb is active (speed>0)
+@loop3:     lda BombSpeed-1,X   ; Check that the bomb is active (speed>0)
             beq @cont
             clc                 ; If speed !=0, update current Y position
             adc BombPosY-1,X
@@ -1562,6 +1563,7 @@ PosChar:    stx PosX
             sta POSCOLPT
             rts
 
+
 ; Put a "sprite", that is a 8x8 cell in a 2x2 character position.
 ; A contains the character code. It should be less than 32.
 ; The 4 characters are disposed as follows:
@@ -1627,13 +1629,12 @@ CalcChGenOfs:
 
 ; Clear the contents of a "sprite".
 ClearSprite:
-            ldy #0
-            tya
-            ldx #32
+            lda #0
+            ldy #31
 @loop:      sta (SPRITECH),y
-            iny
-            dex
+            dey
             bne @loop
+            sta (SPRITECH),y
             rts
 
 ; A basic test showing a "sprite"
@@ -1730,6 +1731,7 @@ Delayloop:  dex
             rts
 
 ShortDelay: ldy #$40
+            ldx #$FF
             jmp Delayloop
 
 ; Random number generation routine. Adapted from here:
@@ -1793,7 +1795,7 @@ PrintBCD:   pha             ; Save the BCD value
             lsr A
             lsr A
             clc
-            adc #(48+$80)   ; Make an screen code char
+            adc #(48+$80)   ; Make a screen code char
             jsr DrawChar
             inx
             pla             ; Recover the BCD value
