@@ -302,6 +302,10 @@ ContInit:   sty VICSCRVE    ; Centre the screen vertically...
             cli
             lda #$0         ; Prepare joystick
             sta Level
+            sta Score
+            sta Score+1
+            sta HiScore
+            sta HiScore+1
             sta PORTAVIA1d
             lda #$7F
             sta PORTBVIA2d
