@@ -463,11 +463,12 @@ draw1l:
             jsr PrintRes
             lda #(48+$80)   ; Write a zero, to multiply x10 the score
             jsr DrawChar
-            lda Score       ; Update the high score if needed
-            cmp HiScore
-            bcc @noupdate
             lda Score+1
             cmp HiScore+1
+            bcc @nou
+            jsr UpdateHiSc
+@nou:       lda Score       ; Update the high score if needed
+            cmp HiScore
             bcc @noupdate
             jsr UpdateHiSc
 @noupdate:  lda HiScore     ; Load the current hi score and convert it to BCD
