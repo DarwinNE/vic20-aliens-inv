@@ -30,6 +30,10 @@
 ; A speed of $FF (or 255 in decimal) means that the bomb is exploding and
 ; should be destroyed; i.e. erased from the screen and then deactivated, by
 ; putting a final speed of 0.
+;
+; Plenty of things are done during the IRQ handling routine, synchronized with
+; the PAL refresh rate of the monitor. For this reason, expect a lot of flicker 
+; in the aliens when this game is played on a NTSC machine.
 
 
 ; Difficulty-related constants
@@ -133,6 +137,8 @@
         BombPeriod= $46     ; Period for updating bomb positions
         Level     = $47     ; Current level
         tmpp      = $48
+        ExplMXpos = $49
+        ExplMCnt  = $4A
     
         INITVALC=$ede4
 
@@ -276,7 +282,20 @@ ContInit:   sty VICSCRVE    ; Centre the screen vertically...
             sta VICCHGEN    ; while leaving ch. 128-255 to their original pos.
             jsr MovCh       ; Load the graphic chars
             sei             ; Configure the interrupt handler
-            lda #<IrqHandler
+            
+            ; Data for PAL machines. See for example:
+            ; http://www.antimon.org/dl/c64/code/stable.txt
+            LINES = 312
+            CYCLES_PER_LINE = 71
+            TIMER_VALUE = LINES * CYCLES_PER_LINE - 2
+@loopsync:  lda VICRAST     ; Synchronization loop
+            cmp #112
+            bne @loopsync
+            lda #<TIMER_VALUE
+            ldx #>TIMER_VALUE
+            stx $9125       ; Set up the timer
+            sta $9126
+            lda #<IrqHandler; And the IRQ handler
             sta $0314
             lda #>IrqHandler
             sta $0315
@@ -302,10 +321,10 @@ CenterScreenNTSC:
 
 StartGame:
             sei
-            lda #<EndMemMrk ; DEBUG
-            sta HiScore     ; DEBUG
-            lda #>EndMemMrk ; DEBUG
-            sta HiScore+1   ; DEBUG
+            ;lda #<EndMemMrk ; DEBUG
+            ;sta HiScore     ; DEBUG
+            ;lda #>EndMemMrk ; DEBUG
+            ;sta HiScore+1   ; DEBUG
             
             lda #$2F        ; Turn on the volume, set multicolour add. colour 2
             sta VOLUME
@@ -452,7 +471,7 @@ draw1l:
             lda HiScore+1
             sta Val+1
             jsr Bin2BCD
-            ldx #08
+            ldx #09
             lda #CYAN
             jsr PrintRes
             lda #(48+$80)   ; Write an additional zero
@@ -517,6 +536,8 @@ IrqHandler: pha
             pha
             tya
             pha
+            ;lda #10
+            ;sta VICCOLOR
 @still:     ; lda VICRAST
 ;             bne @still
 ;             lda #09         ; DEBUG
@@ -526,23 +547,36 @@ IrqHandler: pha
             cmp #$FD        ; sound effects
             bne @nomute     ; If the mother ship is present, do not mute SFX
             stx EFFECTS
-@nomute:    bit Win         ; If Win <0 stop the game
+@nomute:    lda ExplMCnt
+            beq @noerMexp
+            dec ExplMCnt
+            bne @noerMexp
+            ldx ExplMXpos
+            ldy #1
+            lda #EMPTY
+            jsr DrawChar
+@noerMexp:  bit Win         ; If Win <0 stop the game
             bpl @contirq
             jmp @exitirq
 @contirq:   lda IrqCn
             cmp Period      ; Execute every PERIOD/60 of second
             beq @contint
             jmp @cont3
-@contint:   stx IrqCn
+@contint:   ldx #$00
+            stx IrqCn
             stx NOISE
             lda AlienPosY
+            pha
             lsr
             lsr
             bit VoiceBase   ; If music is active, VoiceBase is linked to the
             bmi @nomusic    ; vertical alien position (music becomes higher
             sta VoiceBase   ; pitched when aliens scroll down).
 @nomusic:   lsr
-            sta AlienPosYc
+            sta AlienPosYc  ; Calculate Y pos of aliens in characters
+            pla
+            and #7
+            sta SpriteY     ; Calculate Y shift in pixel
             jsr EraseAliens
             jsr FallBombs   ; Make bombs fall. Aliens will be on top of bombs
             bit Win         ; If Win <0 stop the game
@@ -599,7 +633,7 @@ IrqHandler: pha
             jsr MotherSh    ; Check if we should enter the mother ship
 @exitirq:   jsr Music1
             jsr Music2
-            ;lda #08         ; DEBUG
+            ;lda #11         ; DEBUG
             ;sta VICCOLOR    ; DEBUG
             pla             ; Restore registers
             tay
@@ -767,9 +801,6 @@ DrawAliens:
             lda AlienPosYc
             sta AlienCurrY
             jsr CalcXpos
-            lda AlienPosY
-            and #7
-            sta SpriteY
             lda #<(GRCHARS1+SPRITE1A*8)
             sta SPRITECH
             lda #>(GRCHARS1+SPRITE1A*8)
@@ -827,21 +858,25 @@ DrawAliens:
 
 ; PAL-only code here!
 
-Waitrast:   lda VICRAST   ; Wait if there is a risk of flicker
+Waitrast:   ;lda #9
+            ;sta VICCOLOR
+Waitrast1:  lda VICRAST   ; Wait if there is a risk of flicker
             lsr
             lsr
             sec
             sta TmpScan
-            sbc #11
+            sbc #20
             bpl @greater
             lda #0
-@greater:   cmp AlienCurrY
+@greater:   cmp AlienPosYc
             bcs @noflicker
             lda TmpScan
-            cmp AlienCurrY
+            cmp AlienPosYc
             bcc @noflicker
-            bcs Waitrast
-@noflicker: rts
+            bcs Waitrast1
+@noflicker: ;lda #8
+            ;sta VICCOLOR
+            rts
 
 ; End of PAL-only code
 
@@ -1027,10 +1062,12 @@ mothershot: txa
             lda #$FD
             sta MotherPos
             lda #$FF
+            stx ExplMXpos
             ldx tmpindex
             sta FireSpeed,X
             sta FirePosY,X      ; This would cause a redraw erasing the shot
             lda #$05            ; Update the score: +50 pts
+            sta ExplMCnt
             jsr AddScore
             ldx tmpindex
             jmp backcoll
@@ -1849,7 +1886,7 @@ FireColOver:.res NMSHOTS, $00   ; Array containing the ch. colour overwritten
 ;         01 11 1111 is a silence
 ; Special codes for note durations:
 ;         00 ss ssss specify that the following notes should have the given
-;            duration in 1/60's of seconds
+;            duration in 1/50's of seconds
 ;         it should be followed by a byte giving the duration of the silence in
 ;         the note
 loopcode = %10000000
@@ -2080,11 +2117,11 @@ DefChars:
             SPRITE2D = LASTCH+8
             
             BLENDCH = LASTCH+9
-            ;Level 0 1 2 3 4 5 6 7 8 9 A B C
-LevelsPer:  .byte  5,4,4,3,3,3,2,2,2,1,1,1,1
-LevelsBomb: .byte  3,2,1,3,2,1,3,2,1,4,3,2,1           
+            ;Level 0 1 2 3 4 5 6 7 8 9 A B
+LevelsPer:  .byte  5,4,3,3,2,2,2,2,1,1,1,1
+LevelsBomb: .byte  3,2,3,2,2,3,2,1,4,3,2,1           
 
-NUMLEVEL   = 13
+NUMLEVEL   = 12 ; Total number of levels.
 
 EndMemMrk:  .byte 0
 
