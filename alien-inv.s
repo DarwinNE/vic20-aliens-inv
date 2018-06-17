@@ -130,7 +130,10 @@
         Win       = $41     ; If 1, the level is won. If $FF, game over
         Score     = $42     ; Current score (divided by 10) (word)
         HiScore   = $44     ; High Score (divided by 10) (word)
-
+        BombPeriod= $46     ; Period for updating bomb positions
+        Level     = $47     ; Current level
+        tmpp      = $48
+    
         INITVALC=$ede4
 
 ; VIC-chip addresses
@@ -278,9 +281,8 @@ ContInit:   sty VICSCRVE    ; Centre the screen vertically...
             lda #>IrqHandler
             sta $0315
             cli
-            lda #PERIODS
-            sta Period
             lda #$0         ; Prepare joystick
+            sta Level
             sta PORTAVIA1d
             lda #$7F
             sta PORTBVIA2d
@@ -326,6 +328,7 @@ StartGame:
             sta IrqCn
             sta NOISE
             sta AlienPosX
+            jsr ConfLevel
             ldx #NMBOMBS    ; Clear all bombs
 @loopg:     LDA #$0
             sta BombSpeed-1,X
@@ -349,16 +352,30 @@ StartGame:
             lda #BLACK
             jsr PaintColour
             jsr DrawShield
-            cli
             lda #32
             sta VoiceBase
-            jmp draw1l
+            jsr draw1l
+            cli
+            rts
 
 ; Put zero in the current score
 
 ZeroScore:  lda #$00
             sta Score
             sta Score+1
+            rts
+
+; Configure the level (in Level)
+
+ConfLevel:  ldx Level
+            cpx #NUMLEVEL-1
+            bmi @validlevel
+            ldx #NUMLEVEL-1
+            stx Level
+@validlevel:lda LevelsBomb,x
+            sta BombPeriod
+            lda LevelsPer,x
+            sta Period
             rts
 
 ; Draw the shields in the following positions:
@@ -368,7 +385,7 @@ ZeroScore:  lda #$00
 
 DrawShield: ldx #1
             ldy #29
-            lda #WHITE
+            lda Period
             sta Colour
             lda #BLOCK
             jsr DrawChar
@@ -550,16 +567,14 @@ IrqHandler: pha
 @draw:      lda PixPosX
             ror
             bcs @altaliens
-            lda #ALIEN1
-            sta AlienCode1
-            lda #ALIEN3
-            sta AlienCode2
+            ldx #ALIEN1
+            ldy #ALIEN3
             bcc @normal
-@altaliens: lda #ALIEN2
-            sta AlienCode1
-            lda #ALIEN4
-            sta AlienCode2
-@normal:    jsr DrawAliens
+@altaliens: ldx #ALIEN2
+            ldy #ALIEN4
+@normal:    stx AlienCode1
+            sty AlienCode2
+            jsr DrawAliens
             lda AlienMaxX   ; Check if the direction should be reversed
             cmp #15
             bmi @cont2
@@ -578,14 +593,14 @@ IrqHandler: pha
             cmp OldCannonP
             beq @nochange
             jsr ClearCannon ; If yes, redraw it
-            jsr DrawCannon
-@nochange:  jsr MoveShoots  ; Update the position of cannon shots
+@nochange:  jsr DrawCannon
+            jsr MoveShoots  ; Update the position of cannon shots
             inc IrqCn
             jsr MotherSh    ; Check if we should enter the mother ship
 @exitirq:   jsr Music1
             jsr Music2
-            lda #08         ; DEBUG
-            sta VICCOLOR    ; DEBUG
+            ;lda #08         ; DEBUG
+            ;sta VICCOLOR    ; DEBUG
             pla             ; Restore registers
             tay
             pla
@@ -600,7 +615,7 @@ IrqHandler: pha
 MotherSh:   lda MotherPos
             cmp #$FD
             bne @moveship
-            lda Random          ; Get a random number and check if it is less
+            lda Random+1        ; Get a random number and check if it is less
             cmp #SHIPPROB       ; than a given threshold
             bcc @exitsh
             lda #$0F
@@ -658,8 +673,7 @@ DrawCannon: lda CannonPos
 ; OldCannonP (in characters).
 
 ClearCannon:
-            lda OldCannonP
-            tax
+            ldx OldCannonP
             ldy #30             ; Vertical position of the cannon
             lda #WHITE          ; Cannon in white
             sta Colour
@@ -669,7 +683,6 @@ ClearCannon:
 ; Erase aliens. Calculate AlienCurrY (in chars)
 
 EraseAliens:
-            ;jsr Waitrast
             ldy AlienPosYc
             dey
             
@@ -687,7 +700,7 @@ EraseAliens:
             clc
 @nocorr:    adc POSCHARPT
             sta POSCHARPT
-            
+            jsr Waitrast
             ldy #16*7
             lda #EMPTY
 @loop:      sta (POSCHARPT),y   ; A little bit of loop unrolling
@@ -1169,17 +1182,14 @@ CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
             jsr Delay
             lda #$00
             sta VOICE1
-            lda Period          ; Decrease Period (increase alien speed)
-            sec
-            sbc #$01
-            bcc @exit           ; Avoid having "zero" period
-            sta Period
+            inc Level
 @exit:      rts
 
 ; Game over! Zero the score, turn the screen to red and write "GAME OVER"
 
 GameOver:   lda #$00            ; Mute all effects
             sta EFFECTS
+            sta Level
             lda #$FF
             sta Win             ; Stop the game
             lda #$80
@@ -1205,8 +1215,6 @@ GameOver:   lda #$00            ; Mute all effects
             lda #>GameOverSt
             sta LAB_02
             jsr PrintStr
-            lda #PERIODS
-            sta Period
 @exit:      rts
 
 ; Control bombs dropping. A maximum of 8 bombs can be falling at the same
@@ -1225,7 +1233,7 @@ GameOver:   lda #$00            ; Mute all effects
 
 FallBombs:  inc Bombcntr
             lda Bombcntr
-            cmp #3
+            cmp BombPeriod
             bcc DrawBombs
             lda #0
             sta Bombcntr
@@ -1266,7 +1274,7 @@ FallBombs:  inc Bombcntr
             bne @loop3
 
 DrawBombs:  ldx #0              ; Draw bombs
-            lda #MAGENTA        ; Colour of the bombs
+            lda BombPeriod      ; Colour of the bombs
             sta Colour
 @loop4:     stx tmpindex
             lda BombSpeed,X     ; Do not draw inactive bombs
@@ -1338,13 +1346,18 @@ DropBomb:   jsr GetRand
             bne @searchlp
             lda #1
             sta BombSpeed,Y
+            lda SpriteX
+            sta tmpp
             lda AlienCurrY
             sta BombPosY,Y
             txa
             asl
-            clc
             adc PixPosX
-            adc #$FF
+            ror Random+1
+            sbc #1
+            ror tmpp
+            ror tmpp
+            adc #$0
             sta BombPosX,Y
 @nobomb:    rts
 
@@ -2067,10 +2080,11 @@ DefChars:
             SPRITE2D = LASTCH+8
             
             BLENDCH = LASTCH+9
-            
-            
-            
-            
+            ;Level 0 1 2 3 4 5 6 7 8 9 A B C
+LevelsPer:  .byte  5,4,4,3,3,3,2,2,2,1,1,1,1
+LevelsBomb: .byte  3,2,1,3,2,1,3,2,1,4,3,2,1           
+
+NUMLEVEL   = 13
 
 EndMemMrk:  .byte 0
 
