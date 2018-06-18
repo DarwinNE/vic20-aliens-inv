@@ -136,9 +136,9 @@
         HiScore   = $44     ; High Score (divided by 10) (word)
         BombPeriod= $46     ; Period for updating bomb positions
         Level     = $47     ; Current level
-        tmpp      = $48
-        ExplMXpos = $49
-        ExplMCnt  = $4A
+        tmpp      = $48     ; Temp for bomb dropping position
+        ExplMXpos = $49     ; Hor. position (ch) of the explosion on mother sh.
+        ExplMCnt  = $4A     ; Mother ship explosion counter
     
         INITVALC=$ede4
 
@@ -366,6 +366,7 @@ StartGame:
             sta FireSpeed-1,x
             sta FirePosX-1,x
             sta FirePosY-1,x
+            sta FirePosOY-1,x
             sta FireColOver-1,X
             lda #EMPTY
             sta FireChOver-1,X
@@ -1249,7 +1250,7 @@ GameOver:   lda #$00            ; Mute all effects
             bne @loop
             lda #$00
             sta NOISE
-            ldx #2              ; write "GAME OVER"
+            ldx #4              ; write "GAME OVER"
             ldy #15
             lda #<GameOverSt
             sta LAB_01
@@ -1677,18 +1678,17 @@ CalcChGenOfs:
             asl
             adc CHRPTR          ; Add to the CHRPTR (to get address of the ch.)
             sta CHRPTR
-            bcc @normal        ; Correct if page change
+            bcc @normal         ; Correct if page change
             inc CHRPTR+1
 @normal:    rts
 
 ; Clear the contents of a "sprite".
 ClearSprite:
             lda #0
-            ldy #31
-@loop:      sta (SPRITECH),y
-            dey
+            ldy #32
+@loop:      dey
+            sta (SPRITECH),y    ; sta does not affect processor flags
             bne @loop
-            sta (SPRITECH),y
             rts
 
 ; A basic test showing a "sprite"
@@ -1843,11 +1843,12 @@ Bin2BCD:    lda #0          ; Clear the result area
             rts
 
 ; Print the BCD value in A as two ASCII digits
+
 PrintBCD:   pha             ; Save the BCD value
-            lsr A           ; Shift the four most significant bits
-            lsr A           ; ... into the four least significant
-            lsr A
-            lsr A
+            lsr             ; Shift the four most significant bits
+            lsr             ; ... into the four least significant
+            lsr
+            lsr
             clc
             adc #(48+$80)   ; Make a screen code char
             jsr DrawChar
@@ -1862,7 +1863,8 @@ PrintBCD:   pha             ; Save the BCD value
 
 ; DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA
 ;
-; Data and configuration settings.
+; Data and configuration settings. Tables and some music-related stuff.
+; Characters!
 ;
 ; DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA
 
@@ -1880,13 +1882,12 @@ FireColOver:.res NMSHOTS, $00   ; Array containing the ch. colour overwritten
 
 
 ; Music data. Much is loop-based, to reduce mem occupation. 
-; IMPROVE DESC!
 ; The code for a loop is as follows:
 ; 1 byte: 10xx xxxx where the xxx xxx represent the number of times the loop
 ;                   should be repeated
 ; Special code: 1111 1111 repeat from start
 ; The code for a note is as follows:
-;         01 zz zzzz where zz zzzz represents the distance in semitones from C
+;         01 zz zzzz where zz zzzz represents the note (standard VIC 20)
 ;         01 11 1111 is a silence
 ; Special codes for note durations:
 ;         00 ss ssss specify that the following notes should have the given
@@ -1920,13 +1921,13 @@ Voice2nod:  .byte $00
 
 Voice1data: .byte duracode + 30, 25
             .byte loopcode + 2
-            ; a simple diatonic scale
+            ; a simple scale
             .byte notecode + 0, notecode + 2, notecode + 4, notecode + 5
             .byte notecode + 7, notecode + 9, notecode + 11, notecode + 12
             .byte endloop
             
             .byte loopcode + 2
-            ; a simple diatonic scale
+            ; a simple scale
             .byte notecode + 24, notecode + 26, notecode + 28, notecode + 29
             .byte notecode + 31, notecode + 33, notecode + 35, notecode + 36
             .byte endloop
@@ -1935,13 +1936,13 @@ Voice1data: .byte duracode + 30, 25
 
 Voice2data: .byte duracode + 15, 12
             .byte loopcode + 8
-            ; a simple diatonic scale
+            ; a simple scale
             .byte notecode + 40, silence
             .byte notecode + 48, silence
             .byte endloop
 
             .byte loopcode + 16
-            ; a simple diatonic scale
+            ; a simple scale
             .byte notecode + 32, silence
             .byte endloop
             
