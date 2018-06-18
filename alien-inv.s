@@ -466,6 +466,7 @@ draw1l:
             lda Score+1
             cmp HiScore+1
             bcc @nou
+            beq @nou
             jsr UpdateHiSc
 @nou:       lda Score       ; Update the high score if needed
             cmp HiScore
