@@ -205,8 +205,7 @@ mainloop:   lda Joystick
             beq mainloop
             cmp #$0D        ; Wait for return if the game stopped
             bne @norestart
-            lda Win
-            cmp #$00        ; If the game has stopped, restart
+            lda Win         ; If the game has stopped, restart
             bne restart
 @norestart: lda keyin
             cmp #$58        ; X: increase position of the cannon (right)
@@ -237,7 +236,9 @@ left:       dec CannonPos
             sta CannonPos
             jmp mainloop
 
-fire:       jsr CannonShoot
+fire:       lda Win         ; If the game has stopped, restart
+            bne restart
+            jsr CannonShoot
             jmp mainloop
 
 CannonShoot:
@@ -376,7 +377,10 @@ StartGame:
             jsr PaintColour
             jsr DrawShield
             lda #32
-            sta VoiceBase
+            bit VoiceBase
+            bpl @musicok
+            lda #$A0
+@musicok:   sta VoiceBase
             jsr draw1l
             cli
             rts
@@ -542,8 +546,6 @@ IrqHandler: pha
             pha
             tya
             pha
-            ;lda #10
-            ;sta VICCOLOR
 @still:     ; lda VICRAST
 ;             bne @still
 ;             lda #09         ; DEBUG
@@ -637,11 +639,11 @@ IrqHandler: pha
             jsr MoveShoots  ; Update the position of cannon shots
             inc IrqCn
             jsr MotherSh    ; Check if we should enter the mother ship
-@exitirq:   jsr Music1
+@exitirq:   bit Win
+            bmi @nomusic1
+            jsr Music1
             jsr Music2
-            ;lda #11         ; DEBUG
-            ;sta VICCOLOR    ; DEBUG
-            pla             ; Restore registers
+@nomusic1:  pla             ; Restore registers
             tay
             pla
             tax
@@ -1198,8 +1200,6 @@ CheckWin:   lda AliensR1s       ; Check if all aliens have been destroyed
             bne @exit
             lda #$FF            ; If we come here, all aliens have been shot
             sta Win             ; That will stop the game
-            lda #$80
-            sta VoiceBase
             lda #$00            ; Mute all effects
             sta NOISE
             sta EFFECTS
@@ -1235,8 +1235,6 @@ GameOver:   lda #$00            ; Mute all effects
             sta Level
             lda #$FF
             sta Win             ; Stop the game
-            lda #$80
-            sta VoiceBase
             jsr ZeroScore       ; Put the score to zero
             lda #RED            ; Put all the screen in red (sooo bloody!)
             sta Colour
