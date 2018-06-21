@@ -381,7 +381,7 @@ CenterScreenNTSC:
             lda #23*8
             sta AlienYLimit
             ldx #$0A
-            ldy #$9
+            ldy #$0B
             jmp ContInit
 
 StartGame:
