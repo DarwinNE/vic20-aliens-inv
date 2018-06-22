@@ -33,7 +33,9 @@
 ;
 ; Plenty of things are done during the IRQ handling routine, synchronized with
 ; the PAL refresh rate of the monitor. For this reason, expect a lot of flicker
-; in the aliens when this game is played on a NTSC machine.
+; in the aliens when this game is played on a NTSC machine. Differences between
+; PAL and NTSC include a different screen height that is 31 rows for PAL
+; machines and 28 for NTSC ones.
 
 
 ; Difficulty-related constants
@@ -164,6 +166,7 @@
         tprnd2    = $62
         
         mothercntr= $63
+        aliencntr = $64
 
         INITVALC=$ede4
 
@@ -315,10 +318,8 @@ ContInit1:  stx $9125       ; Set up the timer
             lda #>IrqHandler
             sta $0315
             cli
-            lda #$0         ; Prepare joystick
+            jsr ZeroScore   ; A contains 0 after this routine
             sta Level
-            sta Score
-            sta Score+1
             sta HiScore
             sta HiScore+1
             sta PORTAVIA1d
@@ -361,7 +362,7 @@ SyncNTSC:
 CenterScreenPAL:
             lda #30
             sta CannonYPos
-            lda #$BE        ; Set a 31 row-high column
+            lda #$3E        ; Set a 31 row-high column
             sta VICROWNC
             lda #29
             sta BunkerY
@@ -372,16 +373,16 @@ CenterScreenPAL:
             jmp ContInit
 
 CenterScreenNTSC:
-            lda #27
-            sta CannonYPos
-            lda #$38        ; Set a 29 row-high column
-            sta VICROWNC
             lda #26
+            sta CannonYPos
+            lda #$36        ; Set a 27 row-high column
+            sta VICROWNC
+            lda #25
             sta BunkerY
-            lda #23*8
+            lda #22*8
             sta AlienYLimit
             ldx #$0A
-            ldy #$0B
+            ldy #$10
             jmp ContInit
 
 StartGame:
@@ -432,6 +433,8 @@ StartGame:
             lda #BLACK
             jsr PaintColour
             jsr DrawShield
+            lda #24
+            sta aliencntr
             lda #32
             bit VoiceBase
             bpl @musicok
@@ -1077,6 +1080,7 @@ notmove:    ldx tmpindex
 ; Here we know that a collision took place, so we should see what element has
 ; been encountered by the bullet. A contains the character that has been found
 
+
 ; Here, the collision with an alien is sure
 
 realshot:   lda #$D0            ; We are going to make some noise!
@@ -1117,8 +1121,12 @@ realshot:   lda #$D0            ; We are going to make some noise!
 
 @l3:        eor AliensR3s       ; Add here for more than three lines of aliens
             sta AliensR3s
-@follow:
-            jsr Explosion       ; BOOOOM!
+@follow:    dec aliencntr
+            lda aliencntr
+            cmp #4
+            bne @norm
+            jsr speedup
+@norm:      jsr Explosion       ; BOOOOM!
             ldy tmpy
             ldx tmpx
             jsr DrawChar
@@ -1134,6 +1142,7 @@ collision:  cmp #SPRITE1A
             bmi @noalien
             cmp #SPRITE2D
             bpl @noalien
+
 
 ; Handle a possible collision with an alien.
 
@@ -1190,6 +1199,15 @@ collision:  cmp #SPRITE1A
             jmp notmove
 backcoll:   jsr CheckWin
             jmp notmove
+
+speedup:
+            lda #0
+            sta IrqCn
+            dec Period
+            bne @norm
+            inc Period
+@norm:      rts
+
 
 ; Handle the different collisions.
 ; X and Y contain the position of the collision, also available in tmpx and
