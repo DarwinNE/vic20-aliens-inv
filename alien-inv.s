@@ -320,9 +320,9 @@ ContInit1:  stx $9125       ; Set up the timer
             cli
             jsr ZeroScore   ; A contains 0 after this routine
             sta Level
-            sta HiScore
+            sta HiScore     ; Zero the high score
             sta HiScore+1
-            sta PORTAVIA1d
+            sta PORTAVIA1d  ; Prepare VIAs for joystick
             lda #$7F
             sta PORTBVIA2d
             rts

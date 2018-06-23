@@ -2,7 +2,11 @@
 ;
 ;             by Davide Bucci, April-May 2018
 ;
-; 
+; A small loader showing an instruction screen and playing a two voice tune 
+; (J.S. Bach, Fantasia of Partita 3, BWV 827).
+;
+; The code is way less polished than the game, so do not be too harsh judging
+; here...
 ;
 ; The assembler used is ca65
 ;
@@ -247,8 +251,14 @@ Init:
             sta $0314
             lda #>IrqHandler
             sta $0315
-            cli
-            rts
+            lda #100        ; Disable RUN/STOP and RESTORE
+            sta 808         ; One may argue why to deactivate this (usually
+            cli             ; considered a sort of "copy protection") in an
+            rts             ; open source game. It happens that the game uses
+                            ; plenty of page 0 variables that interfere badly
+                            ; with BASIC normal variables. After RUN/STOP and
+                            ; RESTORE, the computer was basically inusable
+                            ; anyway
 
 ; Copy the graphic chars.
 
