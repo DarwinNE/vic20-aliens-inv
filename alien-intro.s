@@ -1,8 +1,8 @@
 ;         V I C   A L I E N - I N V A D E R S
 ;
-;             by Davide Bucci, April-May 2018
+;             by Davide Bucci, April-June 2018
 ;
-; A small loader showing an instruction screen and playing a two voice tune 
+; A small loader showing an instruction screen and playing a two voice tune
 ; (J.S. Bach, Fantasia of Partita 3, BWV 827).
 ;
 ; The code is way less polished than the game, so do not be too harsh judging
@@ -52,6 +52,7 @@
         Colour = LAB_06     ; Colour to be used by the printing routines
         tmp4 = LAB_0A
         secs = LAB_07       ; Write in the second half of the screen
+        portaconfig = LAB_08
 
 
 
@@ -116,7 +117,7 @@ main:
             lda #CYAN
             sta Colour
             jsr PrintStr
-            
+
             ldx #0
             ldy #0
             lda #1
@@ -136,9 +137,18 @@ main:
             sta MEMCLR+8*22+6
             lda #GREEN
             sta MEMCLR+8*22+8
-            
-@loopchar:  jsr GETIN       ; Main loop waiting for keyboard events
+            lda PORTAVIA1d
+            sta portaconfig
+            lda #0          ; Many thanks to @BedfordLvlExp for the joystick
+            sta PORTAVIA1d  ; code here!
+@loopchar:  lda PORTAVIA1   ; Load joystick state
+            and #32         ; Check for the fire button
+            cmp #32
+            bne @doload
+            jsr GETIN       ; Main loop waiting for keyboard events
             beq @loopchar
+@doload:    lda portaconfig ; Put back configuration for port A of VIA 1
+            sta PORTAVIA1d  ; to avoid loading issues
             lda #$00
             sta GEN1
             sta GEN2
@@ -179,7 +189,7 @@ main:
             beq @disk10
             cmp #11
             beq @disk11
-            
+
 @loadc:     jsr DrawChar        ; Complete the load command
             inx
             lda #<EndL
@@ -280,7 +290,7 @@ ClearSpc:   lda #$00
 ; IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ
 ;
 ; Basically, only handles music here.
-; 
+;
 ; IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ - IRQ
 
 IrqHandler: pha
@@ -306,7 +316,7 @@ Music1:     ldy Voice1ctr
             lda #$00
             sta VOICE1
             sta VOICE3
-@dec:       dey 
+@dec:       dey
             sty Voice1ctr
             rts
 
@@ -360,7 +370,7 @@ Music2:     ldy Voice2ctr
             bne @dec
             lda #$00
             sta VOICE2
-@dec:       dey 
+@dec:       dey
             sty Voice2ctr
             rts
 
@@ -485,7 +495,7 @@ PaintColour:
 ;
 ; DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA - DATA
 
-; Music data. Much is loop-based, to reduce mem occupation. 
+; Music data. Much is loop-based, to reduce mem occupation.
 ; IMPROVE DESC!
 ; The code for a loop is as follows:
 ; 1 byte: 10xx xxxx where the xxx xxx represent the number of times the loop
@@ -576,7 +586,7 @@ Voice1data: ; Measures 1 - 6
             .byte do1,mi1,la1,la1,sold1,si1
             .byte duracode + semiquaver, semiquaverd
             .byte si1,la1,sold1,la1,si1,do2,re2,fa2,si1,fa2,mi2,re2
-            
+
             ; Measures 7 - 12
             .byte duracode + quaver, quaverd
             .byte do2
@@ -594,7 +604,7 @@ Voice1data: ; Measures 1 - 6
             .byte sol2,la1,si1,sold1,la1,do2
             .byte duracode + quaver, quaverd
             .byte fa2,re2,sol1
-            
+
             ; Measures 13 - 18
             .byte mi2,do2,fa1
             .byte duracode + semiquaver, semiquaverd
@@ -605,7 +615,7 @@ Voice1data: ; Measures 1 - 6
             .byte sold1,la1,si1,fa1,mi1,re1
             .byte do1,mi1,fa1,re1,mi1,la1
             .byte si1,mi1,fa1,re1,mi1,si1
-            
+
             ; Measures 19-24
             .byte do2,mi1,fa1,re1,mi1,do2
             .byte si1,la1,sold1,si1
@@ -615,7 +625,7 @@ Voice1data: ; Measures 1 - 6
             .byte si1,mi2,fa2,re2,mi2,si1
             .byte la1,mi2,fa2,re2,mi2,la1
             .byte sol1,si1,mi1,do2,re2,si1
-            
+
             ; Measures 25-30
             .byte do2,mi2,la1,sold1,la1,do2
             .byte fad1,la1,re1,si1,do2,la1
@@ -623,7 +633,7 @@ Voice1data: ; Measures 1 - 6
             .byte mi1,sol1,do1,la1,si1,sol1
             .byte la1,do2,fad1,mi1,fad1,la1
             .byte red1,fad1,si0,sol1,la1,fad1
-            
+
             ; Measures 31-36
             .byte duracode +quaver, quaverd
             .byte sol1,si1,mi2,mi2,red2,fad2
@@ -641,7 +651,7 @@ Voice1data: ; Measures 1 - 6
             .byte si1,la1
             .byte duracode +quaver, quaverd
             .byte re2
-            
+
             ; Measures 37 - 42
             .byte duracode +semiquaver, semiquaverd
             .byte si1,do2,re2,mi2,fad2,sol2
@@ -650,12 +660,12 @@ Voice1data: ; Measures 1 - 6
             .byte sol2, si2,mi2,do2,la2,re2
             .byte si1,sol2,do2
             .byte repeatm
-            
+
             ; Had to truncate here, because of the 256 events limit
- ;            
+ ;
 ;             .byte duracode +semiquaver, semiquaverd
 ;             .byte la1,fad1,sol1,mi1,fad1,la1
-;             
+;
 ;             ; Measures 43 - 48
 ;             .byte re2,mi1,fad1,red1,mi1,sol1
 ;             .byte do2,red1,mi1,dod1,red1,fad1
@@ -663,7 +673,7 @@ Voice1data: ; Measures 1 - 6
 ;             .byte si0,red1,fad1,la1,sol1,fad1
 ;             .byte sol1,si1,do2,la1,si1,mi2
 ;             .byte fad2,si1,do1,la1,si1,fad2
-;             
+;
 ;             ; Measures 49 - 54
 ;             .byte sol2,si1,do2,la1,si1,sol2
 ;             .byte fad2,mi2,red1,fad2
@@ -678,7 +688,7 @@ Voice1data: ; Measures 1 - 6
 ;             .byte sol1,fad1,sol1,la1
 ;             .byte si1,sol1,la1,fad1,sol1,mi2
 ;             .byte mi1,mi1,mi1,mi1,mi1,mi1
-; 
+;
 ;             .byte repeatm
 
 Voice2data: ; Measures 1 - 6
@@ -698,7 +708,7 @@ Voice2data: ; Measures 1 - 6
             .byte mi2,do2,207
             .byte duracode+semiquaver,semiquaverd
             .byte re2,si1,do2,la1,si1,re2
-            
+
             ; Measures 13-18
             .byte sol2,la1,si1,sol1,la1,do2
             .byte fa2, sold1,la1,fad1,sold1,si1
@@ -708,7 +718,7 @@ Voice2data: ; Measures 1 - 6
             .byte la1,la0,la1
             .byte duracode+semiquaver,semiquaverd
             .byte la1,sold1,la1,fad1,sold1,mi1
-            
+
             ; Measures 19 - 24
             .byte la1,sold1,la1,si1,do2,re2
             .byte mi2,fa2,mi2,re2,do2,si1
@@ -717,7 +727,7 @@ Voice2data: ; Measures 1 - 6
             .byte sol1,sol0,sol1
             .byte fa1,fa0,fa1
             .byte mi1,sold0,mi0
-            
+
             ; Measures 25 - 30
             .byte la0,si0,do1
             .byte re1,fad1,re1
@@ -736,7 +746,7 @@ Voice2data: ; Measures 1 - 6
             .byte duracode +semiquaver, semiquaverd
             .byte fad1,mi1,red1,mi1,fad1,sol1
             .byte la1,do2,fad1,do2,si1,la1
-            
+
             ; Measures 37 - 42
             .byte duracode +quaver, quaverd
             .byte sol1
@@ -754,7 +764,7 @@ Voice2data: ; Measures 1 - 6
             .byte re2,mi1,fad1,re1,mi1,sol1
             .byte duracode +quaver, quaverd
             .byte do2,la1,re1
-            ; 
+            ;
 ;             ; Measures 43 - 48
 ;             .byte si1,sol1,do1
 ;             .byte duracode +semiquaver, semiquaverd
@@ -764,7 +774,7 @@ Voice2data: ; Measures 1 - 6
 ;             .byte mi1,mi0,mi1
 ;             .byte duracode +semiquaver, semiquaverd
 ;             .byte mi1,red1,mi1,dod1,red1,si1
-;             
+;
 ;             ; Measures 49 - 54
 ;             .byte duracode +quaver, quaverd
 ;             .byte mi1,mi0,mi1
@@ -774,7 +784,7 @@ Voice2data: ; Measures 1 - 6
 ;             .byte fad0,si0,do1,la0,si0,fad0
 ;             .byte mi0,si0,do1,la0,si0,mi0
 ;             .byte red0,fad0,si0,sol0,la0,fad0
-;             
+;
             .byte la1,la1,la1,la1
 
 FileName:   .byte "alien-inv"
@@ -803,7 +813,7 @@ ScoreDesc:  .byte "                      "
             .byte "                      ",0
 
 Keys:       .byte  "            ",27+128,('Z'-'@'),29+128, "   ",  ('L'-'@')
-            .byte ('E'-'@') 
+            .byte ('E'-'@')
             .byte ('F'-'@'), ('T'-'@'),"        "
             .byte "    ", 27+128,('X'-'@'),29+128, "   ",  ('R'-'@'), ('I'-'@')
             .byte ('G'-'@')
@@ -831,13 +841,13 @@ Keys:       .byte  "            ",27+128,('Z'-'@'),29+128, "   ",  ('L'-'@')
 LoadStr:    .byte " ",('l'-'@'),('o'-'@'),('a'-'@'),('d'-'@'),34,('a'-'@')
             .byte ('l'-'@'),('i'-'@'),('e'-'@'),('n'-'@'),45
             .byte ('i'-'@'),('n'-'@'),('v'-'@'),34,44,0
-            
-EndL:       .byte "                      "           
+
+EndL:       .byte "                      "
             .byte "                      "
             .byte "                      "
             .byte "                      "
             .byte "                      "
-            .byte "     " 
+            .byte "     "
 RunStr:     .byte ('r'-'@'),('u'-'@'),('n'-'@'),0
 Loading:    .byte ('L'-'@'),('O'-'@'),('A'-'@'),('D'-'@'),('I'-'@')
             .byte ('N'-'@'),('G'-'@'),0

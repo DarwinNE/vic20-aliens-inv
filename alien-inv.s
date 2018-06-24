@@ -164,7 +164,7 @@
 
         tprnd1    = $61
         tprnd2    = $62
-        
+
         mothercntr= $63
         aliencntr = $64
 
@@ -699,7 +699,7 @@ IrqHandler: pha
             bmi @nomusic1
             jsr Music1
             jsr Music2
-@nomusic1: 
+@nomusic1:
             pla             ; Restore registers
             tay
             pla
