@@ -528,7 +528,7 @@ draw1l:
             jsr DrawChar
             lda Score+1
             cmp HiScore+1
-            bcc @nou
+            bcc @noupdate
             beq @nou
             jsr UpdateHiSc
 @nou:       lda Score       ; Update the high score if needed

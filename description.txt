@@ -1,0 +1,36 @@
+                  V I C   A L I E N - I N V A D E R S
+
+                     by Davide Bucci, April-July 2018
+
+This program is a Space-Invaders clone that runs on an unexpanded VIC-20.
+It has been successfully tested on PAL and NTSC real machines.
+
+The objective is not to reproduce perfectly the original game, but more to
+propose something very playable and quite fast on the VIC-20. Arcadia has been
+inspiring, even if its gameplay is very different from Space Invaders.
+
+As in the original Space Invaders, you have to shoot to the aliens that try to
+land on the Earth, avoiding the mortal bombs they drop. You have four bunkers
+that provide a certain degree of protection, but they will not withstand bombs
+(or your shoots) for very long...
+
+There are less aliens than in the original arcade version of Space Invaders,
+however, the game tends to became quite frantic after a while.
+
+A certain amount of work has been done to ensure that the graphics is smooth
+enough so that the effect hopefully appears to be quite polished. It is my
+first attempt to write a complete game in 6502 assembly language, even if I
+learnt that language many years ago and I used it mainly as a complement for
+BASIC programs.
+
+This game has been physically distributed in a limited edition of three C-10
+deluxe cassettes tapes that now are highly sought collector items :-)
+
+You can find the source code released under GPL v.3 at the GitHub project page:
+
+https://github.com/DarwinNE/vic20-aliens-inv
+
+I hope you will enjoy this little game as I enjoyed programming it!
+
+Davide Bucci, July 22, 2018
+Twitter: @davbucci
